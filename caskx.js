@@ -1,4 +1,6 @@
 const mainScript = () => {
+    dayjs.extend(window.dayjs_plugin_utc)
+    dayjs.extend(window.dayjs_plugin_timezone)
 
     barba.use(barbaPrefetch);
     //Lenis scroll
@@ -7,21 +9,33 @@ const mainScript = () => {
         duration: 1.8
     });
 
+    ScrollTrigger.config({ ignoreMobileResize: true })
+    //ScrollTrigger.normalizeScroll(true);
+
     let setLength, aSet, lenisNav, lenisNavWrap;
+    const isTouchDevice = () => {
+        return (('ontouchstart' in window) ||
+        (navigator.maxTouchPoints > 0) ||
+        (navigator.msMaxTouchPoints > 0));
+    }
+
+    $('.nav-main-list').css('overflow-y', 'auto');
+    // nav inner infinite scroll init
+    setLength = $('.nav-outer').height();
+    $('.nav-main-list').css('height',`${setLength}px`)
     if ($(window).width() > 991) {
-        $('.nav-main-list').css('overflow-y', 'auto');
-        // nav inner infinite scroll init
-        setLength = $('.nav-links-inner-wrap').height();
-        $('.nav-main-list').css('height',`${setLength}px`)
-        aSet = $('.nav-links-inner-wrap').clone();
-        $('.nav-inner').append(aSet.clone())
-        lenisNav = new Lenis({
-            lerp: false,
-            wrapper: document.querySelector('.nav-main-list'),
-            content: document.querySelector('.nav-inner'),
-            duration: 1.4,
-            infinite: true
-        })
+        if (!isTouchDevice()) {
+            $('.nav-main-list').css('pointer-events','none');
+            lenisNav = new Lenis({
+                lerp: false,
+                wrapper: document.querySelector('.nav-main-list'),
+                content: document.querySelector('.nav-inner'),
+                duration: 1.4,
+            })
+        } else {
+            $('.nav-main-list').attr('data-lenis-prevent','')
+        }
+
         lenisNavWrap = new Lenis({
             lerp: false,
             wrapper: document.querySelector('.nav'),
@@ -29,14 +43,20 @@ const mainScript = () => {
             duration: 1.4,
             infinite: true
         })
+    } else {
+        console.log('mobile')
+        $('.nav-main').attr('data-lenis-prevent','')
     }
-    
-    let navVelo, navDirect;
+
+    let navVelo, navDirect, bodyVelo;
 
     function raf(time) {
         lenis.raf(time)
         if ($(window).width() > 991) {
-            lenisNav.raf(time)
+            if (lenisNav) {
+                lenisNav.raf(time)
+            }
+
             lenisNavWrap.raf(time)
         }
         requestAnimationFrame(raf)
@@ -86,21 +106,6 @@ const mainScript = () => {
 	};
     responsiveRem();
 
-    const soundControl = {
-        play: function (audio) {
-            audio.play();
-        },
-        stop: function (audio) {
-            audio.pause();
-        },
-        toggle: function (audio) {
-            audio.paused ? audio.play() : audio.pause();
-        },
-        reset: function (audio) {
-            audio.currentTime = 0;
-        }
-    }
-
     function counter(options) {
         const counterUp = window.counterUp.default;
 
@@ -149,6 +154,247 @@ const mainScript = () => {
         }
     }
 
+    const viewportBreak = (options) => {
+        const { desktop, tablet, mobile } = options;
+        let result;
+        switch (true) {
+            case viewport.width <= 767:
+                result = mobile;
+                break;
+            case viewport.width <= 991:
+                result = tablet;
+                break;
+            default:
+                result = desktop;
+                break;
+        }
+        return result;
+    }
+
+    function popupSuccessGeneration(success) {
+        let { title, sub, cap } = success;
+        const popupSelect = (child) => $('.popup-wrap-succ').find(child);
+
+        let newCap = cap
+            .replace("sales@caskx.com", `<a href="mailto:sales@caskx.com" class="span-link hover-un mod-mb-block">sales@caskx.com</a>`)
+            .replace("+1 (310) 807-5060", `<a href="tel:+1(310)807-5060" class="span-link hover-un mod-mb-block">+1 (310) 807-5060</a>`);
+
+        popupSelect('.popup-title').html(title);
+        popupSelect('.popup-sub').html(sub);
+        popupSelect('.popup-cap').html(newCap);
+
+        $('.popup-wrap-succ').addClass('active');
+
+        popupSelect('.popup-succ-btn-wrap .btn').on('click', function(e) {
+            e.preventDefault();
+            $('.popup-wrap-succ').removeClass('active');
+        })
+    }
+
+    function mapFormToObject(form, originFormData) {
+        /** -NOTE-
+         * read it: https://stackoverflow.com/questions/12077859/difference-between-this-and-event-target
+         * form: this property will be
+         *          [e.target]: when the form have event
+         *       or [$(formID).get(0)]: when the form don't have event
+         */
+
+        let formData = originFormData || new FormData(form);
+
+        const parsedFormData = [...formData.entries()].reduce(
+            (prev, cur) => {
+                const name = cur[0];
+                const val = cur[1];
+                let dataName;
+
+                for (let field of form) {
+                    let fieldDataName = field.dataset.name;
+                    let fieldName = field.name;
+                    if (name === fieldName) dataName = fieldDataName;
+                }
+
+                return {
+                    ...prev, [name]: {
+                        value: val,
+                        name: dataName,
+                        validType: []
+                    }
+                };
+            },
+            {}
+        );
+        return parsedFormData;
+    }
+
+    function mapObjectFormToValidate(form, obj) {
+        const parsedFormData = [...Object.entries(obj)].reduce((prev, cur) => {
+            const name = cur[0];
+            const val = cur[1];
+            let validArr = val.validType;
+
+            for (let field of form) {
+                let fieldName = field.name;
+                let fieldType = field.type;
+                let fieldRequired = field.required || false;
+                let REGEXP_TYPE = ['email', 'phone'];
+                if (name === fieldName) {
+                    if (fieldRequired) {
+                        let CusMessage = field.getAttribute('mess-required');
+                        validArr.unshift(required(CusMessage))
+                    }
+                    if (REGEXP_TYPE.includes(fieldType)) {
+                        let CusMessage = field.getAttribute('mess-regexp');
+                        let CusRegexp = field.getAttribute('cus-regexp');
+                        validArr.unshift(regexp(CusRegexp || fieldType, CusMessage))
+                    }
+                }
+                continue;
+            }
+            return {
+                ...prev, [name]: val
+            }
+        }, {})
+        return parsedFormData;
+    }
+
+    const required = (message) => ({ message, required: true });
+    const regexp = (pattern, message) => ({ regexp: pattern, message });
+
+    const REGEXP = {
+        email: /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/g
+    }
+
+    const ERROR_MESSAGE = {
+        required: (name) => `Please fill the ${name} field`,
+        regexp: 'Field not like format'
+    }
+
+    function validateForm({ formsObj: forms, rules }) {
+        const errorObj = {};
+        for (let name in rules) {
+            for (let rule of rules[name].validType) {
+                if (rule.required) {
+                    if (!forms[name].value.trim() || forms[name].value.trim() == "false") {
+                        errorObj[name] = rule.message || ERROR_MESSAGE.required(forms[name].name);
+                    }
+                }
+                if (rule.regexp && forms[name]) {
+                    let regexp = rule.regexp;
+                    if (regexp in REGEXP) {
+                        regexp = new RegExp(REGEXP[regexp]);
+                    }
+                    else if (!(regexp instanceof RegExp)) {
+                        regexp = new RegExp()
+                    }
+                    if (!regexp.test(forms[name].value.trim())) {
+                        errorObj[name] = rule.message || ERROR_MESSAGE.regexp;
+                    }
+                }
+            }
+        }
+        return {
+            errorObj,
+            isValidated: Object.keys(errorObj).length === 0
+        };
+    }
+    const errorValidation = {
+        active: (form, errors) => {
+            Array.from(form.querySelectorAll('.input-wrap input.w-input')).forEach(node => {
+                let errorEl = node.parentElement.lastChild;
+                if (errors.hasOwnProperty(node.getAttribute('name'))) {
+                    errorEl.innerHTML = errors[node.getAttribute('name')];
+                    $(errorEl).slideDown('fast');
+                }
+                else {
+                    $(errorEl).slideUp('fast', () => errorEl.innerHTML = '');
+                }
+            });
+        },
+        reset: (form) => {
+            Array.from(form.querySelectorAll('.input-wrap input.w-input')).forEach(node => {
+                let errorEl = node.parentElement.lastChild;
+                $(errorEl).slideUp('fast', () => errorEl.innerHTML = '');
+            });
+        }
+    }
+
+    function buildUrl(formEl) {
+        let apiUrl = 'http://intranet.caskx.com/api/forms/submitForm?'
+        let formData = new FormData(formEl.get(0));
+        let url = new URLSearchParams(formData);
+        return apiUrl + url.toString();
+    }
+
+    function reInitForm(form) {
+        form.trigger('reset');
+        $(`#${form.attr('id')} [data-input-url]`).val(window.location.href);
+        let accreditedInput = $(`#${form.attr('id')} [data-input-hidden="accredited"]`);
+        accreditedInput.val($(`#${form.attr('id')} .radio-input-item input[checked]`).parent().find('.radio-input-txt').text());
+    }
+
+    function submitForm(formID, reset) {
+        /** -NOTE-
+         * read it: https://stackoverflow.com/questions/12077859/difference-between-this-and-event-target
+         *  e.target <--> $(formID).get(0)
+         *  e.currentTarget <--> $(this) <--> $(formID)
+         */
+        const form = $(formID);
+        const formTarget = $(formID).get(0);
+        let success = {
+            status: false,
+            title: form.attr('data-title-succ') || '',
+            sub: form.attr('data-sub-succ') || '',
+            cap: form.attr('data-cap-succ') || ''
+        };
+
+        const formsObj = mapFormToObject(formTarget);
+        const rules = mapObjectFormToValidate(formTarget, formsObj);
+        const { errorObj, isValidated } = validateForm({
+            formsObj: formsObj,
+            rules: rules
+        });
+        if (isValidated) {
+            success.status = true;
+            let newWin = window.open(buildUrl(form), '_blank', 'toolbar=no,status=no,menubar=no,scrollbars=no,resizable=no,left=10000,top=10000,width=10,height=10,visible=none', '');
+            newWin.blur();
+            newWin.close();
+            reset?.();
+            return { success };
+        }
+        else {
+            success.status = false;
+            // alert(errorObj);
+            return { errorObj, success };
+        }
+    }
+
+    function formHandler(formID, options = {}) {
+        const { onSuccess, onError } = options;
+
+        $('[data-input-url]').val(window.location.href);
+        inputInteractionInit(formID);
+        inputRadioInteract(formID);
+
+        $(`${formID} [data-form-btn="submit"]`).on('click', function(e) {
+            e.preventDefault();
+            $(this).closest('form').trigger('submit');
+        })
+
+        $(formID).on('submit', function (e) {
+            e.preventDefault();
+            const { errorObj: errors, success } = submitForm(formID, () => reInitForm($(this)));
+            if (success.status) {
+                onSuccess?.(success);
+                errorValidation.reset(e.target);
+            }
+            else {
+                onError?.(errors);
+                errorValidation.active(e.target, errors);
+            }
+            return false;
+        })
+    }
+
     // Threejs global object
     const gltfLoader = new THREE.GLTFLoader();
     const cubeTextureLoader = new THREE.CubeTextureLoader()
@@ -163,19 +409,22 @@ const mainScript = () => {
     ])
     enviromentMapLoad.encoding = THREE.sRGBEncoding;
 
+
     let modelUrl = 'https://s3.ap-southeast-1.amazonaws.com/assets.bearplus.io/videos/models/wine_barrel_01_4k.gltf'
     let barrelHomeHero = gltfLoader.loadAsync(modelUrl)
     let barrelHomeDiscor = gltfLoader.loadAsync(modelUrl);
     let barrelGlobalNav = gltfLoader.loadAsync(modelUrl);
+    let barrelAboutHero = gltfLoader.loadAsync(modelUrl);
     let barrelNav;
 
     const cameraHomeHero = new THREE.PerspectiveCamera(40, viewport.width / viewport.height , 0.1, 1000);
     const cameraHomeDiscor = new THREE.PerspectiveCamera(15, viewport.width / viewport.height , 0.1, 1000);
+    const cameraAboutHero = new THREE.PerspectiveCamera(15, $('.about-3d-wrap').width() / $('.about-3d-wrap').height() , 0.1, 1000);
     let cameraGlobalNav;
     if ($(window).width() > 991) {
         cameraGlobalNav = new THREE.PerspectiveCamera(15, $('.nav-3d-inner').width() / $('.nav-3d-inner').height() , 0.1, 1000);
     }
-    
+
     let rendererHomeHero = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
@@ -184,12 +433,13 @@ const mainScript = () => {
     if ($(window).width() > 991) {
         rendererHomeHero.setPixelRatio(1)
     } else {
-        rendererHomeHero.setPixelRatio(2)
+        rendererHomeHero.setPixelRatio(1)
     }
     rendererHomeHero.physicallyCorrectLights = true;
     rendererHomeHero.outputEncoding = THREE.sRGBEncoding;
     rendererHomeHero.toneMapping = THREE.ACESFilmicToneMapping;
     rendererHomeHero.toneMappingExposure = 1.2;
+
     let rendererHomeDiscor = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
@@ -200,6 +450,21 @@ const mainScript = () => {
     rendererHomeDiscor.outputEncoding = THREE.sRGBEncoding;
     rendererHomeDiscor.toneMapping = THREE.ACESFilmicToneMapping;
     rendererHomeDiscor.toneMappingExposure = 1.2;
+
+    let rendererAboutHero = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+    })
+    rendererAboutHero.setSize($('.about-3d-wrap').width(), $('.about-3d-wrap').height());
+    if ($(window).width() > 991) {
+        rendererAboutHero.setPixelRatio(1)
+    } else {
+        rendererAboutHero.setPixelRatio(1)
+    }
+    rendererAboutHero.physicallyCorrectLights = true;
+    rendererAboutHero.outputEncoding = THREE.sRGBEncoding;
+    rendererAboutHero.toneMapping = THREE.ACESFilmicToneMapping;
+    rendererAboutHero.toneMappingExposure = 1.2;
 
     let rendererGlobalNav;
     if ($(window).width() > 991) {
@@ -220,6 +485,8 @@ const mainScript = () => {
         cameraHomeHero.updateProjectionMatrix();
         cameraHomeDiscor.aspect = $(window).width() / $(window).height();
         cameraHomeDiscor.updateProjectionMatrix();
+        cameraAboutHero.aspect = $('.about-3d-wrap').width() / $('.about-3d-wrap').height();
+        cameraAboutHero.updateProjectionMatrix();
         if ($(window).width() > 991) {
             cameraGlobalNav.aspect = $('.nav-3d-inner').width() / $('.nav-3d-inner').height();
             cameraGlobalNav.updateProjectionMatrix();
@@ -227,6 +494,7 @@ const mainScript = () => {
 
         rendererHomeHero.setSize( $(window).width(), $(window).height());
         rendererHomeDiscor.setSize( $(window).width(), $(window).height());
+        rendererAboutHero.setSize( $('.about-3d-wrap').width(), $('.about-3d-wrap').height());
         if ($(window).width() > 991) {
             rendererGlobalNav.setSize( $('.nav-3d-inner').width(), $('.nav-3d-inner').height());
         }
@@ -256,13 +524,13 @@ const mainScript = () => {
 
     // Header
     lenis.on('scroll', function(inst) {
+        bodyVelo = inst.velocity
         // Header
         if (inst.scroll > $(window).height() / 4) {
             $('.header-wrap').addClass('scrolled')
         } else {
             $('.header-wrap').removeClass('scrolled')
         }
-
         // Header on footer
 
         if (inst.scroll > ($('.main').height() - $(window).height() * 1.5)) {
@@ -302,17 +570,24 @@ const mainScript = () => {
         }
     })
     function openNav(triggerEl) {
+        $('.mod-header-logo.mod-icon').addClass('no-filter')
         if ($(window).width() > 991) {
             const posCenter = (setLength - $('.nav-link').height()) / 2;
-            const activeOffsetTop = $('.nav-link.active').get(0).offsetTop;
-            lenisNav.scrollTo(activeOffsetTop - posCenter, { duration: 0 });
+            if (!$('[data-barba-namespace="termPolicyTemp"]').length) {
+                if (lenisNav) {
+                    const activeOffsetTop = $('.nav-link.active').get(0).offsetTop;
+                    lenisNav.scrollTo(activeOffsetTop - posCenter, { duration: 0 });
+                }
+            }
         }
 
         $('.nav').addClass('active')
         triggerEl.attr('data-nav', 'close')
         triggerEl.find('.txt-14').text('Close')
         $('.nav').find('.nav-monogram').addClass('active')
+
         lenis.stop()
+
         $('.header-wrap').addClass('on-nav-open')
 
         gsap.set('.nav-bg-wrap', { yPercent: -100 });
@@ -323,9 +598,14 @@ const mainScript = () => {
         if ($(window).width() > 991) {
             gsap.set(barrelNav.position, { z: 1 });
         }
-        gsap.set('.nav-img-wrap', {clipPath: 'inset(20%)'});
-        gsap.set('.nav-img-inner-wrap', {scale: 1.4, autoAlpha: 0});
         gsap.set('.nav-line-inner', { scaleX: 0, autoAlpha: 0 });
+        gsap.set('.nav-mb-btn-wrap .btn', { autoAlpha: 0, x: rem(-50) });
+        gsap.set('.mod-nav-mb', { autoAlpha: 0, x: rem(-50) });
+        gsap.set('.nav-line-inner', { scaleX: 0, autoAlpha: 0 });
+
+        if ($(window).width() > 991) {
+            gsap.set(barrelNav.position, { z: 1 });
+        }
 
         const openNavtl = gsap.timeline({
             onStart() {
@@ -337,21 +617,25 @@ const mainScript = () => {
         })
         openNavtl
         .to('.nav-bg-wrap', { yPercent: 0, duration: 1, ease: 'power2.out' })
-        .to('.nav-3d-inner', { autoAlpha: 1, duration: 1, ease: 'power2.out' }, .15)
-        .to('.nav-3d-grad', { autoAlpha: 1, duration: 1, ease: 'power2.out' }, .15)
         if ($(window).width() > 991) {
             openNavtl
-            .to(barrelNav.position, {z: 0, duration: 1, ease: 'power1.inOut'}, '<=0')
+                .to('.nav-3d-inner', { autoAlpha: 1, duration: 1, ease: 'power2.out' }, .15)
+                .to('.nav-3d-grad', { autoAlpha: 1, duration: 1, ease: 'power2.out' }, .15)
+                .to(barrelNav.position, {z: 0, duration: 1, ease: 'power1.inOut'}, '<=0')
         }
         openNavtl
-        .to('.nav-link', {x: 0, autoAlpha: 1, duration: .6, stagger: 0.04, ease: 'power1.out' }, '>-1.2')
-        .to('.nav-contact-item-wrap', { x: 0, duration: .8, autoAlpha: 1, stagger: 0.04, ease: 'power1.out' }, '<= .2')
+        .to('.nav-link', { x: 0, autoAlpha: 1, duration: .6, stagger: 0.04, ease: 'power1.out' }, '>-1.2')
+            .to('.nav-mb-btn-wrap .btn', { x: 0, autoAlpha: 1, duration: .6, ease: 'power1.out' }, '0.6')
+        if ($(window).width() <= 991) {
+            openNavtl.to('.nav-mb-btn-wrap .btn', { x: 0, autoAlpha: 1, duration: .6, ease: 'power1.out' }, '0.6')
+            .to('.mod-nav-mb', { x: 0, autoAlpha: 1, duration: .6, ease: 'power1.out' }, '0.65')
+        }
+        openNavtl.to('.nav-contact-item-wrap', { x: 0, duration: .8, autoAlpha: 1, stagger: 0.04, ease: 'power1.out' }, '<= .2')
         .to('.nav-line-inner', { scaleX: 1, duration: .6, autoAlpha: 1, ease: 'power1.out' }, '<= 0')
-        .to('.nav-img-wrap', {clipPath: 'inset(0%)', duration: 2.5, ease: 'expo.out' }, '>-.8')
-        .to('.nav-img-inner-wrap', { scale: 1, duration: 2.5, autoAlpha: .8, ease: 'expo.out' }, '<=0')
-
     }
+
     function closeNav(triggerEl) {
+        $('.mod-header-logo.mod-icon').removeClass('no-filter')
         const closeNavtl = gsap.timeline({
             onStart() {
                 $('[data-nav]').addClass('force-none');
@@ -369,17 +653,18 @@ const mainScript = () => {
         closeNavtl
         .to($('.nav-contact-item-wrap').get().reverse(), { x: rem(40), duration: .8, autoAlpha: 0, stagger: 0.04, ease: 'power1.out' }, 0)
         .to('.nav-line-inner', { scaleX: 0, duration: .6, autoAlpha: 1, ease: 'power1.out' }, '<= 0.1')
-        .to('.nav-img-wrap', {clipPath: 'inset(20%)', duration: 2, ease: 'expo.out' }, '<=0')
-        .to('.nav-img-inner-wrap', { scale: 1.4, duration: 2, autoAlpha: 0, ease: 'expo.out' }, '<=0')
-        .to($('.nav-link').get().reverse(), { x: rem(80), autoAlpha: 0, duration: .6, stagger: 0.04, ease: 'power1.out' }, '<= 0.2')
-        if ($(window).width() > 991) {
-            openNavtl
-            .to(barrelNav.position, {z: -1, duration: .8, ease: 'power1.inOut'}, '0')
+        if ($(window).width() <= 991) {
+            closeNavtl.to('.mod-nav-mb', { x: rem(60), autoAlpha: 0, duration: .6, ease: 'power1.out' }, '0.2')
+            .to('.nav-mb-btn-wrap .btn', { x: rem(50), autoAlpha: 0, duration: .6, ease: 'power1.out' }, '0.3')
         }
-        openNavtl
-        .to('.nav-3d-inner', { autoAlpha: 0, duration: .6, ease: 'power1.out' }, '<=.55')
-        .to('.nav-3d-grad', { autoAlpha: 0, duration: .6, ease: 'power1.out' }, '<=0')
-        .to('.nav-bg-wrap', { yPercent: 100, duration: 1, ease: 'power1.out' }, '<=.55')
+        closeNavtl.to($('.nav-link').get().reverse(), { x: rem(80), autoAlpha: 0, duration: .6, stagger: 0.04, ease: 'power1.out' }, '<= 0.2')
+        if ($(window).width() > 991) {
+            closeNavtl
+                .to(barrelNav.position, { z: -1, duration: .8, ease: 'power1.inOut' }, '0')
+                .to('.nav-3d-inner', { autoAlpha: 0, duration: .6, ease: 'power1.out' }, '<=.55')
+                .to('.nav-3d-grad', { autoAlpha: 0, duration: .6, ease: 'power1.out' }, '<=0')
+        }
+        closeNavtl.to('.nav-bg-wrap', { yPercent: 100, duration: 1, ease: 'power1.out' }, '<=.55')
     }
     function resetNav() {
         $('.nav').removeClass('active')
@@ -389,8 +674,31 @@ const mainScript = () => {
         lenis.start()
     }
     function addNavActiveLink(nextPage) {
-        $('.nav-link').removeClass('active')
+        console.log(nextPage)
+        if (nextPage == 'distilleryDtl') {
+            nextPage = 'distillery'
+        }
+        if (nextPage == 'blogCategory' || nextPage == 'blogAuthor' || nextPage == 'blogDetail' || nextPage == 'blogTag') {
+            nextPage = 'blogs'
+        }
+        $('.nav-link, .home-footer-link').removeClass('active')
         $(`.nav-link[data-nav-link="${nextPage}"]`).addClass('active')
+        $(`.home-footer-link[data-nav-link="${nextPage}"]`).addClass('active')
+    }
+    function updateCurrentClass() {
+		$(".w--current").removeClass("w--current");
+		$("a").each(function (index) {
+			if ($(this).attr("href") === window.location.pathname) {
+				$(this).addClass("w--current");
+			}
+		});
+	};
+    function toggleHeaderScrollmore(nextPage) {
+        if (nextPage == 'home') {
+            $('.header-wrap .sub-header .home-hero-scroll-txt').removeClass('hide-trans')
+        } else {
+            $('.header-wrap .sub-header .home-hero-scroll-txt').addClass('hide-trans')
+        }
     }
 
     //TOC
@@ -456,16 +764,28 @@ const mainScript = () => {
 
     // Signup Popup
     function signUpPopupInit() {
-        $('[data-popup="open"]').on('click', function(e) {
+        $('[data-popup="open"]').on('click', function (e) {
             e.preventDefault();
             let type = $(this).attr('popup-type')
             $(`[popup-content='${type}']`).addClass('active')
-            lenis.start();
+            lenis.stop()
         })
         $('[data-popup="close"]').on('click', function(e) {
-            e.preventDefault();
-            $(this).closest('[popup-content]').removeClass('active')
-            lenis.stop()
+            if (!$('[data-barba-namespace="openAccount"]').length) {
+                e.preventDefault();
+                let formPopup = $(this).closest('[popup-content]').find('form').get(0);
+                $(this).closest('[popup-content]').removeClass('active');
+                lenis.start();
+
+                if (!formPopup) return;
+                errorValidation.reset(formPopup);
+            } else {
+                $(this).attr('href', './')
+            }
+            if ($(this).closest('[popup-content="request"]').length) {
+                $(this).closest('[popup-content="request"]').find('form').trigger('reset')
+                $(this).closest('[popup-content="request"]').find('form').find('.input-wrap').removeClass('filled active')
+            }
         })
     }
     signUpPopupInit()
@@ -473,7 +793,6 @@ const mainScript = () => {
     //Footer
     function footerInit() {
         if ($('.sc-home-footer').length) {
-            console.log('init footer interaction')
             //Form
             $('.home-footer-form .input-field').on('focus', (e) => {
                 e.preventDefault();
@@ -531,13 +850,22 @@ const mainScript = () => {
     updateStatic()
 
     let isDev, willCheckLegal;
-    
+
     if ($('[data-barba-namespace="notFound"]').length) {
-        isDev = true;
+        // 404 page
+        isDev = false;
         willCheckLegal = false;
     } else {
-        willCheckLegal = true;
-        isDev = false;
+        // Default pages
+        if (localStorage.getItem("isLegal")) {
+            console.log('has legal')
+            willCheckLegal = false;
+            isDev = false;
+        } else {
+            console.log('not has legal')
+            willCheckLegal = true;
+            isDev = false;
+        }
     }
     //Start Intro loading
     function introInit() {
@@ -547,7 +875,7 @@ const mainScript = () => {
             lenis.scrollTo(0, {duration: .0})
             return;
         }
-        let count = {val: 00};
+        let count = {val: 0};
         let loadingDuration = 4;
         let loadPer = loadingDuration / 100;
         let zeroDot = {
@@ -561,6 +889,8 @@ const mainScript = () => {
             delay: .2,
             onStart() {
                 lenis.stop()
+                lenis.scrollTo(0, {duration: .0, force: true})
+                console.log('force scroll')
             },
             onComplete() {
                 console.log('doneeee')
@@ -618,6 +948,7 @@ const mainScript = () => {
 
         // Will check legal or not?
         if (willCheckLegal) {
+            $('.legal-center-inner .legal-center-ic').remove()
             introTl
             .to('.intro-loading-ic-wrap', {scale: .4825, duration: 1, ease: 'back.inOut(2)'}, `${loadPer * 100 + .3}`)
 
@@ -633,16 +964,23 @@ const mainScript = () => {
             .to('.legal-wrap .legal-ans-txt', {autoAlpha: 1 ,duration: 1, ease: 'power1.in'}, `${loadPer * 100 + .3}`)
 
             .from('.legal-wrap .legal-center-wrap', {scale: .1 ,duration: 1, ease: 'back.inOut(2)'}, `${loadPer * 100 + .3}`)
-            .to('.intro-brand-legal-txt', {autoAlpha: 1, duration: 1, ease: 'power1.inOut'}, `${loadPer * 100 + .3}`)
+            .to('.intro-brand-legal-txt, .intro-brand-year-txt', {autoAlpha: 1, duration: 1, ease: 'power1.inOut'}, `${loadPer * 100 + .3}`)
 
             .to('.intro-bg-x-wrap', {scale: 1, duration: .6, autoAlpha: .5, ease: 'power1.inOut'}, `${loadPer * 100 + .3}`)
 
-            .set('.legal-wrap.pe-none .legal-slider-wrap, .intro-brand-legal-txt', {pointerEvents: 'auto', onComplete() {
+            .set('.legal-wrap.pe-none .legal-slider-wrap, .intro-brand-legal-txt, .intro-brand-year-txt', {pointerEvents: 'auto', onComplete() {
                 legalInteraction(willCheckLegal)
             }}, `${loadPer * 100}`)
 
             .to('.legal-top-wrap, .legal-bot-wrap', {autoAlpha: 1, duration: .8}, `${loadPer * 100 + 1}`)
         } else {
+            $('.legal-top-wrap .h-size32').text("Let's explore lucrative whiskey investments today")
+            $('.legal-bot-wrap .home-hero-scroll-txt').remove()
+
+            $('.legal-center-inner .legal-center-line').remove()
+            $('.legal-center-inner').addClass('no-legal-check')
+
+            $('.legal-bot-wrap').addClass('pe-auto')
             introTl
             //.set('.legal-slide-main-btn ')
             .to('.intro-loading-ic-wrap', {scale: .4825, duration: 1, ease: 'back.inOut(2)'}, `${loadPer * 100 + .3}`)
@@ -652,6 +990,7 @@ const mainScript = () => {
             }}, `${loadPer * 100 + .3}`)
             //.to('.intro-wrap', {autoAlpha: 0, duration: 1, ease: 'power1.out', delay: .3}, `${loadPer * 100 + .3}`)
             .to('.intro-bg-x-wrap', {scale: 1, duration: .6, autoAlpha: .5, ease: 'power1.inOut'}, `${loadPer * 100 + .3}`)
+            .to('.legal-top-wrap, .legal-bot-wrap, .intro-brand-year-txt', {autoAlpha: 1, duration: .8}, `${loadPer * 100 + 1}`)
         }
         return introTl
     }
@@ -765,14 +1104,19 @@ const mainScript = () => {
 
     }
     function doneLegal() {
-        lenis.start()
+        lenis.start();
+        refreshAllScrollTrigger()
+        localStorage.setItem("isLegal", "true")
         $('.cursor-wrap').addClass('active')
-        gsap.set('.legal-wrap.pe-none .legal-slider-wrap, .intro-brand-legal-txt', {pointerEvents: 'none'})
+        if (isTouchDevice() || $(window).width() < 991) {
+            $('.cursor-wrap').addClass('hidden')
+        }
+        gsap.set('.legal-wrap.pe-none .legal-slider-wrap, .intro-brand-legal-txt, .intro-brand-year-txt', {pointerEvents: 'none'})
         let afterIntroTl = gsap.timeline({})
         afterIntroTl
         .to('.intro-bg-x-wrap', {scale: 1.4, duration: 1, y: 0, autoAlpha: .5, ease: 'power1.inOut'})
         .to('.intro-wrap', {autoAlpha: 0, duration: 1, ease: 'power1.out'}, '>=-.4')
-        soundControl.play($('#Sound').get(0))
+
     }
     function failLegal() {
         let afterIntroTl = gsap.timeline({})
@@ -782,71 +1126,83 @@ const mainScript = () => {
     }
     //End Intro loading
 
-    function inputInteractionInit() {
+
+    function inputInteractionInit(formEl) {
         //Normal input
-        $('.input-wrap .input-field').on('focus', function(e) {
+        $(`${formEl} .input-wrap .input-field`).on('focus', function(e) {
             $(this).parent().addClass('active')
         })
-        $('.input-wrap .input-field').on('blur', function(e) {
+        $(`${formEl} .input-wrap .input-field`).on('blur', function(e) {
             $('.input-wrap').removeClass('active')
         })
-        $('.input-wrap .input-field').on('keyup', function(e) {
+        $(`${formEl} .input-wrap .input-field`).on('keyup', function(e) {
             if ($(this).val() != '') {
                 $(this).parent().addClass('filled')
             } else {
                 $(this).parent().removeClass('filled')
             }
         })
-        $('.input-wrap .input-field').on('change', function(e) {
-            console.log($(this).val())
+        $(`${formEl} .input-wrap .input-field`).on('change', function(e) {
             if ($(this).val() != '') {
                 $(this).parent().addClass('filled')
             } else {
                 $(this).parent().removeClass('filled')
             }
         })
+        $(`${formEl} .input-wrap`).each((_,item) => {
+            let errorSpan = $('<span></span>').addClass('txt txt-14 input-error');
+            $(item).append(errorSpan);
+            $(item).find(errorSpan).slideUp();
+        })
+
+        // $('.input-wrap .input-field').on('keyup', function(e) {
+        //     console.log($(this).val());
+        // })
         //Phone input validate
-        $('[type="tel"]').on('input', function(e) {
+        $(`${formEl} [type="tel"]`).on('input', function(e) {
             let newValue = this.value.replace(new RegExp(/[^\d-.+ ]/,'ig'), "");
             this.value = newValue;
         })
 
         //Boolean
-        $('.input-checkbox-ic-wrap').parent().find('.input-checkbox').val('false')
-        console.log($('.input-checkbox-ic-wrap').parent().find('.input-checkbox').val())
-
-        $('.input-checkbox-ic-wrap').on('click', function(e) {
+        $(`${formEl} .input-checkbox`).val('false');
+        $(`${formEl} .input-checkbox-ic-wrap`).on('click', function(e) {
             e.preventDefault();
-            console.log('checkbox')
+            // console.log('checkbox')
             if ($(this).find('.span-link:hover').length != 1) {
                 if ($(this).hasClass('checked')) {
                     $(this).removeClass('checked')
-                    $(this).parent('.input-wrap').parent().find('.input-checkbox').val('false')
+                    $(this).parent('.input-wrap').find('.input-checkbox').val('false')
                 } else {
                     $(this).addClass('checked')
-                    $(this).parent('.input-wrap').parent().find('.input-checkbox').val('true')
+                    $(this).parent('.input-wrap').find('.input-checkbox').val('true')
                 }
-                console.log($(this).parent('.input-wrap').parent().find('.input-checkbox').val())
+                console.log($(this).parent('.input-wrap').find('.input-checkbox').val())
             } else {
-                console.log('link')
+                // console.log('link')
             }
+        })
+        $(`${formEl} .input-checkbox`).each((_, item) => {
+            let defaultCheck = $(item).attr('data-default');
+            console.log("defaultCheck 👉️", defaultCheck)
+            if (defaultCheck) $(item).parent().find('.input-checkbox-ic-wrap').trigger('click');
         })
 
         //Dropdown input
-        $('.input-wrap .input-dropdown').on('focus', function(e) {
+        $(`${formEl} .input-wrap .input-dropdown`).on('focus', function(e) {
             $(this).parent().addClass('active')
             $(this).parent().find('.input-dropdown-inner').addClass('active')
             $(this).parent().find('.input-ic').addClass('on-open')
         })
 
-        $('.input-wrap .input-dropdown').on('blur', function(e) {
+        $(`${formEl} .input-wrap .input-dropdown`).on('blur', function(e) {
             if ($('.dropdown-item:hover').length != 1) {
                 $(this).parent('.input-wrap').find('.input-dropdown-inner').removeClass('active')
                 $(this).parent('.input-wrap').find('.input-ic').removeClass('on-open')
                 $(this).parent('.input-wrap').removeClass('active')
             }
         })
-        $('.dropdown-item').on('click', function(e) {
+        $(`${formEl} .dropdown-item`).on('click', function(e) {
             e.preventDefault();
             console.log('dropdown')
             let value = $(this).find('.txt').text();
@@ -857,9 +1213,9 @@ const mainScript = () => {
             $(this).closest('.input-dropdown-inner').removeClass('active')
             $(this).closest('.input-wrap.dropdown-wrap').find('.input-ic').removeClass('on-open')
         })
-        $('.input-wrap .input-dropdown').on('keyup', function(e) {
+        $(`${formEl} .input-wrap .input-dropdown`).on('keyup', function(e) {
             let keyword = $(this).val().toLowerCase()
-            console.log(keyword)
+            // console.log(keyword)
             let allItem = $(this).parent('.input-wrap').find('.dropdown-item');
             for (let x = 0; x < allItem.length; x++) {
                 if (allItem.eq(x).find('.txt').text().toLowerCase().indexOf(keyword) != -1) {
@@ -874,7 +1230,7 @@ const mainScript = () => {
                 $(this).parent('.input-wrap').find('.dropdown-empty').addClass('hidden')
             }
         })
-        $('.input-wrap .input-dropdown').on('change', function(e) {
+        $(`${formEl} .input-wrap .input-dropdown`).on('change', function(e) {
             if ($(this).val() != '') {
                 $(this).parent('.input-wrap').addClass('filled')
             } else {
@@ -883,7 +1239,7 @@ const mainScript = () => {
         })
 
         //validate sample
-        $('[name="f-name"]').on('keyup', function(e) {
+        $(`${formEl} [name="First-name"]`).on('keyup', function(e) {
             if ($(this).val() != '') {
                 $(this).closest('.account-form-person').find('[data-signup-btn="next"]').removeClass('btn-disable')
             } else {
@@ -894,22 +1250,25 @@ const mainScript = () => {
     }
 
     function leaveTransition(data) {
+        console.log('leaveTrans')
         const tl = gsap.timeline({
             onStart() {
                 gsap.set('.trans-txt', {yPercent: 100})
                 $('.trans-txt').text($(data.next.container).attr('data-title'))
-                //const transTxt = new SplitText('.trans-txt')
             }
         });
         tl
         .to(data.current.container, {opacity: 0, duration: 1, display: 'none'})
         .to('.trans-txt', {yPercent: 0, duration: .6, ease: 'power1.out'}, '0')
         .to('.trans-wrap', {autoAlpha: 1, duration: 1}, '.2')
+        //.to('.trans-wrap', {autoAlpha: 1, duration: .2})
         return tl
     }
     function enterTransition(data) {
         resetAfterLeave(data)
+        console.log('enterTrans')
         const tl = gsap.timeline({
+            delay: 1,
             onComplete() {
                 setTimeout(() => {
                     progressBar();
@@ -917,7 +1276,9 @@ const mainScript = () => {
             }
         });
         tl
-        //.from(data.next.container, {opacity: 0, duration: .6})
+        .set('.trans-wrap', {autoAlpha: 1, overwrite: true})
+        .set(data.next.container, {autoAlpha: 0}, 0)
+        .to(data.next.container, {autoAlpha: 1, duration: 1}, 0)
         .to('.trans-txt', {yPercent: -100, duration: .6, ease: 'power1.in'}, '0')
         .to('.trans-wrap', {autoAlpha: 0, duration: .6}, '1')
         return tl
@@ -929,15 +1290,17 @@ const mainScript = () => {
             height: $(window).height(),
             pixelRatio: window.devicePixelRatio,
         }
+        $('.cursor-inner').removeClass('on-discor')
 
         //Reset popup
+        console.log('reset')
         $('[popup-content="signup"]').removeClass('active')
         $('.signup-select-item').removeClass('active')
 
-        resetNav()
-        addNavActiveLink(data.next.namespace)
-
-        resetBlogFs()
+        resetNav();
+        addNavActiveLink(data.next.namespace);
+        signUpPopupInit();
+        resetBlogFs();
 
         if (data.next.namespace == 'openAcount') {
             $('.header-wrap').addClass('hidden')
@@ -955,10 +1318,17 @@ const mainScript = () => {
         }
     }
     function removeAllScrollTrigger() {
-        console.log('remove scroll trigger')
+        // console.log('remove scroll trigger')
         let triggers = ScrollTrigger.getAll();
         triggers.forEach(trigger => {
             trigger.kill();
+        });
+    }
+    function refreshAllScrollTrigger() {
+        console.log('refresh scroll trigger')
+        let triggers = ScrollTrigger.getAll();
+        triggers.forEach(trigger => {
+            trigger.refresh();
         });
     }
     function resetAfterLeave(data) {
@@ -979,31 +1349,28 @@ const mainScript = () => {
     }
 
     // Common script
-    $('.sound-toggle').on('click', function(e) {
-        e.preventDefault();
-        if ($(this).hasClass('disable')) {
-            soundControl.play($('#Sound').get(0))
-            $(this).removeClass('disable')
-        } else {
-            soundControl.stop($('#Sound').get(0))
-            $(this).addClass('disable')
-        }
-
-    })
 
     function initBlogFs() {
+        updateCurrentClass()
         setTimeout(() => {
             cmsload()
             cmsfilter()
             if (!$('.w-page-count').length) {
                 $('.blog-pagi-wrap').fadeOut()
             }
-        }, 2000);
-
-
+            console.log('init fs')
+        }, 3000);
     }
+    //initBlogFs()
     function resetBlogFs() {
-        window.fsAttributes = null
+        console.log('reset fs')
+        // if (window.fsAttributes || FsAttributes) {}
+        // window.fsAttributes = null
+        // fsAttributes = null
+        // FsAttributes = null
+        // FsAttributes.cmsload.destroy()
+        // FsAttributes.filterload.destroy()
+        // FsAttributes.destroy()
     }
 
     //Variables
@@ -1046,40 +1413,18 @@ const mainScript = () => {
         }
 
         if ($(window).width() > 991) {
-            lenisNav.on('scroll', function(inst) {
-                // navVelo = inst.velocity;
-                // if (inst.direction != 0) {
-                //     navDirect = inst.direction;
-                // }
-            })
             lenisNavWrap.on('scroll', function(inst) {
                 if ($('.nav').hasClass('active')) {
                     navVelo = inst.velocity;
                     if (inst.direction != 0) {
                         navDirect = inst.direction;
                     }
+                    if (!isTouchDevice()) {
+                        lenisNav.scrollTo(lenisNav.scroll + (inst.velocity * 10))
+                    }
                 }
             })
         }
-
-        //Whole nav scroll trigger anim
-        // Observer.create({
-        //     target: '.nav',
-        //     type: 'wheel,touch,scroll',
-        //     lockAxis: true,
-        //     axis: 'y',
-        //     debounce: false,
-        //     onScroll: (self) => {
-        //         if (self.velocityY != 0) {
-        //             navVelo = self.velocityY / 100;
-        //             navDirect = self.velocityY > 0 ? 1 : -1
-        //         }
-        //         console.log(self.velocityY)
-        //     },
-        //     onStop() {
-        //         navVelo = undefined;
-        //     }
-        // })
     }
     globalNavScrollInit()
 
@@ -1149,7 +1494,7 @@ const mainScript = () => {
         })
 
         rendererGlobalNav.setAnimationLoop(animate)
-        
+
         function animate() {
             if (barrelNav) {
                 barrelNav.rotation.x = lerp(barrelNav.rotation.x, (1 - (pointer.x / (viewport.width))) * -Math.PI / 16, 0.04)
@@ -1163,15 +1508,137 @@ const mainScript = () => {
             rendererGlobalNav.render( scene, cameraGlobalNav );
         }
     }
+
+    function checkFormCheckbox() {
+        $('form').find('.input-checkbox-ic-wrap').on('click', function(e) {
+            if ($('form').find('.input-checkbox-ic-wrap.checked').length >= 2) {
+                $('[data-signup-btn="submit"]').removeClass('btn-disable')
+            } else {
+                $('[data-signup-btn="submit"]').addClass('btn-disable')
+            }
+        })
+    }
+
     if ($(window).width() > 991) {
         globalNav3dInit()
     }
-    
+
+    function requestFormInit() {
+        const successPopupStatus = (isSuccess) => {
+            if (isSuccess) {
+                $('.popup-wrap .popup-inner').addClass('hidden');
+                $('.popup-wrap .popup-inner-succ').removeClass('hidden');
+            }
+            else {
+                $('.popup-wrap .popup-inner-succ').addClass('hidden');
+                $('.popup-wrap .popup-inner').removeClass('hidden');
+            }
+        }
+        $('.popup-wrap .popup-succ-btn-wrap').on('click', function (e) {
+            $('.popup-wrap').removeClass('active');
+            successPopupStatus(false);
+        })
+        formHandler('#request-offering', {
+            onSuccess: () => successPopupStatus(true)
+        })
+    }
+    requestFormInit();
+
+    function footerEmailSubscribe() {
+        formHandler('#email-form');
+        $('#email-form #Newsletter').val('Newsletter');
+        $('#email-form').find('.input-error').css({
+            'position': 'absolute',
+            'left': 0,
+            'top': 'auto',
+            'bottom': rem(-15)
+        });
+    }
+    footerEmailSubscribe();
+
+    function inputRadioInteract(formName) {
+        let accreditedInput = $(`${formName} [data-input-hidden="accredited"]`);
+        accreditedInput.val($(`${formName} .radio-input-item input[checked]`).parent().find('.radio-input-txt').text())
+        $(`${formName} .radio-input-item`).on('change', function(e) {
+            $(`${formName} .radio-input-item`).removeClass('active')
+            $(this).addClass('active');
+            accreditedInput.val($(this).find('.radio-input-txt').text())
+            console.log(accreditedInput.val())
+        })
+
+        if ($(window).width() > 991) {
+            $(`${formName} .radio-title-wrap`).on('click', (e) => {
+                e.preventDefault()
+            })
+            $(`${formName} .radio-title-wrap`).on('mouseenter', (e) => {
+                e.preventDefault();
+                $(`${formName} .invest-req-tooltip-global`).addClass('active')
+            })
+            $(`${formName} .radio-title-wrap`).on('mouseleave', (e) => {
+                e.preventDefault();
+                $(`${formName} .invest-req-tooltip-global`).removeClass('active')
+            })
+        } else {
+            $(`${formName} .radio-title-wrap`).on('click', (e) => {
+                e.preventDefault();
+                if ($(`${formName} .invest-req-tooltip-global`).hasClass('active')) {
+                    $(`${formName} .invest-req-tooltip-global`).removeClass('active')
+                } else {
+                    $(`${formName} .invest-req-tooltip-global`).addClass('active')
+                }
+            })
+        }
+    }
+
+    function blogSrchInit() {
+        $('[data-srch="open"]').on('click', function(e) {
+            $('.blog-srch-wrap').addClass('active')
+            lenis.stop()
+            //
+        })
+        $('[data-srch="close"]').on('click', function(e) {
+            $('.blog-srch-wrap').removeClass('active')
+            lenis.start()
+            // reset
+            $('[fs-cmsfilter-element="clear-1"]').trigger('click')
+        })
+
+        $('.blog-srch-clear-ic.pe-none').on('click', function(e) {
+
+        })
+
+        $('#blog-srch').on('keyup', function(e) {
+            console.log($(this).val())
+            let srchPool = $('[fs-cmsfilter-element="list-1"]');
+            // setTimeout(() => {
+            //     srchPool.each((index, el) => {
+            //         if ($(el).find('[role="listitem"]').length == 0) {
+            //             $(el).closest('.blog-srch-cms-wrap').css('display','none')
+            //         } else {
+            //             $(el).closest('.blog-srch-cms-wrap').css('display','block')
+            //         }
+            //     })
+            // }, 101);
+        })
+
+        //Mobile dropdown
+        $('.blog-tab-mb-toggle').on('click', function(e) {
+            e.preventDefault();
+            if ($(this).hasClass('on-open')) {
+                $('.blog-tab-links-inner-form').removeClass('active')
+            } else {
+                $('.blog-tab-links-inner-form').addClass('active')
+            }
+        })
+        $('.blog-tab-mb-toggle')
+    }
+
     const SCRIPT = {};
     SCRIPT.homeScript = {
         namespace: 'home',
         afterEnter() {
             console.log('enter home')
+
             function homeHero3dInit() {
                 console.log('home hero 3d init')
 
@@ -1207,7 +1674,7 @@ const mainScript = () => {
                             lr: 1,
                             tb: .4
                         }
-                    };  
+                    };
                 }
                 const scene = new THREE.Scene()
 
@@ -1277,16 +1744,23 @@ const mainScript = () => {
                             scrub: true,
                         }
                     })
-                    if ($(window).width() > 768) {
+                    if ($(window).width() > 991 && isTouchDevice()) {
+                        gsap.set('.home-hero-barrel-wrap', {autoAlpha: 1})
+                        $('.home-hero-barrel-canvas-wrap').remove();
                         homeHero3dTl
-                        .to(barrel.rotation, {x: -pi * .2, duration: 2.5, ease: 'power1.in', delay: 0.25})
-                        .to(outerGroup.position, {y: -.5, z: 2 , duration: 2.5, ease: 'power1.in', delay: 0.25}, '0')
+                        .to('.home-hero-barrel-wrap', {yPercent: 100, ease: 'none', delay: 0.25})
+
                     } else {
-                        homeHero3dTl
-                        .to(barrel.rotation, {x: -pi * .2, duration: 2.5, ease: 'power1.in', delay: 0.25})
-                        .to(outerGroup.position, {y: -1, z: 4 , duration: 2.5, ease: 'power1.in', delay: 0.25}, '0')
+                        if ($(window).width() > 768) {
+                            homeHero3dTl
+                            .to(barrel.rotation, {x: -pi * .2, duration: 2.5, ease: 'power1.in', delay: 0.25})
+                            .to(outerGroup.position, {y: -.5, z: 2 , duration: 2.5, ease: 'power1.in', delay: 0.25}, '0')
+                        } else {
+                            homeHero3dTl
+                            .to(barrel.rotation, {x: -pi * .2, duration: 2.5, ease: 'power1.in', delay: 0.25})
+                            .to(outerGroup.position, {y: -1, z: 4 , duration: 2.5, ease: 'power1.in', delay: 0.25}, '0')
+                        }
                     }
-                    
                 }
             }
             homeHero3dInit();
@@ -1384,7 +1858,6 @@ const mainScript = () => {
                     shadowLight.shadow.radius = 24;
                     shadowLight.lookAt(0,0,0)
                     scene.add( shadowLight );
-                    console.log(debug)
                     let shadowLightHelper
                     if (debug) {
                         shadowLightHelper = new THREE.PointLightHelper( shadowLight, 1, 0xff0000)
@@ -1537,63 +2010,14 @@ const mainScript = () => {
 
             // Setup
             function homeSetup() {
-                let homeIntroTopOffset = ($(window).height() - $('.home-intro-title-wrap').height()) / 2;
-                $('.home-intro-title-wrap').css('top',`${homeIntroTopOffset}px`)
+                if (!isTouchDevice()) {
+                    let homeIntroTopOffset = ($(window).height() - $('.home-intro-title-wrap').height()) / 2;
+                    $('.home-intro-title-wrap').css('top',`${homeIntroTopOffset}px`)
+                }
                 let homeDocOffsetTop = ($(window).height() - $('.home-doc-title-stick').height()) / 2;
                 $('.home-doc-title-stick').css('top',`${homeDocOffsetTop}px`)
             }
             homeSetup()
-
-            function handlePopupFade() {
-                const DOM = {
-                    popup: $('.discor-popup-inner'),
-                    close: $('.mod-discor-popup'),
-                    popupContent: $('.discor-popup-content')
-                }
-
-                gsap.set(DOM.popup, { autoAlpha: 0, yPercent: 100 })
-                const fade = {
-                    inOut: (popup, middleFunc) => {
-                        let fadeTl = gsap.timeline();
-                        fadeTl.to(popup, { autoAlpha: 0, yPercent: 100, duration: 0.6, ease: 'power1.inOut', onComplete() { middleFunc() } })
-                        .to(popup, { autoAlpha: 1, yPercent: 0, duration: 0.6, ease: 'power1.inOut' })
-                    },
-                    out: (popup) => gsap.to(popup, { autoAlpha: 0, yPercent: 100, duration: 0.5, ease: 'power1.inOut' })
-                }
-                function activePopup(el) {
-                    if (el.attr('data-popup-fade') === "open") {
-                        el.attr('data-popup-fade', 'close');
-                        DOM.popup.removeClass('active')
-                        fade.out(DOM.popup);
-                    }
-                    else if (el.attr('data-popup-fade') === "close") {
-                        $('[data-popup-fade]').attr('data-popup-fade', 'close');
-                        el.attr('data-popup-fade', 'open');
-                        DOM.popup.addClass('active')
-                        
-                        fade.inOut(DOM.popup, () => {
-                            //Add content
-                            let content = el.find('.home-discor-data-content')
-                            DOM.popup.find('.discor-popup-title').html(content.find('[data-discor="title"]').html())
-                            DOM.popup.find('.discor-popup-desc').html(content.find('[data-discor="body"]').html())
-                        })
-                    }
-                }
-                function closePopup() {
-                    $('[data-popup-fade="open"]').attr('data-popup-fade', 'close');
-                    //el.removeClass('active')
-                    fade.out(DOM.popup);
-                }
-                DOM.close.on('click', function(e) {
-                    e.preventDefault();
-                    closePopup();
-                })
-                $('[data-popup-fade]').on('click', function(e) {
-                    e.preventDefault();
-                    activePopup($(this));
-                })
-            }
-            handlePopupFade();
 
             // Header control
             function homeHeaderControl() {
@@ -1668,29 +2092,35 @@ const mainScript = () => {
             homeHeroInit()
 
             function homeIntroInit() {
-                const homeIntroTitle = new SplitText('.home-intro-title', { type: 'lines, chars'});
-                let homeIntroRevealTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-intro-title-stick-wrap',
-                        start: 'top top+=50%',
-                        end: 'bottom top+=50%',
-                        scrub: .6,
-                    }
-                })
-                homeIntroRevealTl
-                .to(homeIntroTitle.chars, {color: '#ffffff', duration: .1, stagger: 0.02, ease: Power1.easeOut}, '0')
+                if (!isTouchDevice()) {
+                    const homeIntroTitle = new SplitText('.home-intro-title', { type: 'lines, chars'});
+                    let homeIntroRevealTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-intro-title-stick-wrap',
+                            start: 'top top+=50%',
+                            end: 'bottom top+=50%',
+                            scrub: .6,
+                        }
+                    })
+                    homeIntroRevealTl
+                    .from(homeIntroTitle.chars, {color: '#212121', duration: .1, stagger: 0.02, ease: 'power1.out'}, '0')
+                }
 
-                let homeIntroTitleWrapTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-intro-title-stick-wrap',
-                        start: 'top bottom',
-                        end: 'bottom top+=50%',
-                        scrub: true,
-                    }
-                })
-                let distance = $('.home-intro-title-stick-wrap').height() - $('.home-intro-title-wrap').height();
-                homeIntroTitleWrapTl
-                .to('.home-intro-title-wrap', {y: distance, duration: 2.5, ease: 'none'})
+                if (!isTouchDevice()) {
+                    let homeIntroTitleWrapTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-intro-title-stick-wrap',
+                            start: 'top bottom',
+                            end: 'bottom top+=50%',
+                            scrub: true,
+                        }
+                    })
+                    let distance = $('.home-intro-title-stick-wrap').height() - $('.home-intro-title-wrap').height();
+                    homeIntroTitleWrapTl
+                    .to('.home-intro-title-wrap', {y: distance, duration: 2.5, ease: 'none'})
+                } else {
+                    $('.home-intro-title-stick-wrap').css('height','auto')
+                }
 
                 let homeIntroTl = gsap.timeline({
                     scrollTrigger: {
@@ -1701,10 +2131,19 @@ const mainScript = () => {
                         scrub: true,
                     }
                 })
-                homeIntroTl
-                .from('.home-intro-bg-stick', {yPercent: 85, duration: 10, ease: 'none'})
-                .to('.home-intro-bg-stick .img-basic', {filter: 'blur(7px)', autoAlpha: 0, duration: 4}, '>=-4')
+                if (!isTouchDevice()) {
+                    homeIntroTl
+                    .from('.home-intro-bg-stick', {yPercent: 85, duration: 10, ease: 'none'})
+                    .to('.home-intro-bg-stick .img-basic', {filter: 'blur(7px)', autoAlpha: 0, duration: 4}, '>=-4')
+                } else {
+                    homeIntroTl
+                    .to('.home-intro-bg-stick .img-basic', {opacity: 0, duration: 10, ease: 'none'})
+                }
 
+                if ($(window).width() > 991 && isTouchDevice()) {
+                    $('.mod-thumb-vid').css('display','none')
+                    $('.mod-thumb').css('display','flex')
+                }
                 if ($(window).width() > 991) {
                     let homeIntroVideoTl = gsap.timeline({
                         scrollTrigger: {
@@ -1719,60 +2158,80 @@ const mainScript = () => {
                     .from('.home-vid-ic-wrap', {scale: .4, duration: 3, ease: 'none'}, '0')
                     .from('.home-intro-vid', {boxShadow: '0 0px 10rem rgba(0, 0, 0, 0)', duration: .6}, '2.4')
                 }
-                
+
                 function homeIntroVideoMouseMove() {
                     if ($(window).width() > 991) {
-                        $('.home-intro-vid-overlay').on('pointerover', function(e) {
-                            e.preventDefault();
-                            if (!$('.home-vid-ic-wrap').hasClass('active')) {
-                                $('.home-vid-ic-wrap').addClass('active')
-                                $('.cursor-inner').addClass('fade-out')
+                        if (!isTouchDevice()) {
+                            $('.home-intro-vid-overlay').on('pointerover', function(e) {
+                                e.preventDefault();
+                                if (!$('.home-vid-ic-wrap').hasClass('active')) {
+                                    $('.home-vid-ic-wrap').addClass('active')
+                                    $('.cursor-inner').addClass('fade-out')
+                                }
+                            })
+
+                            $('.home-intro-vid-overlay').on('pointerleave', function(e) {
+                                e.preventDefault();
+                                if ($($('.home-vid-ic-wrap:hover').length != 1)) {
+                                    $('.home-vid-ic-wrap').removeClass('active')
+                                    $('.cursor-inner').removeClass('fade-out')
+                                }
+
+                            })
+
+                            function moveCursor() {
+                                let iconsX = xGetter('.home-vid-ic-wrap');
+                                let iconsY = yGetter('.home-vid-ic-wrap');
+                                let vidBoundary = $('.home-intro-vid-overlay').get(0);
+
+                                if ($('.home-vid-ic-wrap').length) {
+                                    xSetter('.home-vid-ic-wrap')(lerp(iconsX, pointer.x - vidBoundary.getBoundingClientRect().left), 0.01);
+                                    ySetter('.home-vid-ic-wrap')(lerp(iconsY, pointer.y - vidBoundary.getBoundingClientRect().top), 0.01);
+                                    requestAnimationFrame(moveCursor)
+                                }
                             }
-                        })
-    
-                        $('.home-intro-vid-overlay').on('pointerleave', function(e) {
-                            e.preventDefault();
-                            if ($($('.home-vid-ic-wrap:hover').length != 1)) {
-                                $('.home-vid-ic-wrap').removeClass('active')
-                                $('.cursor-inner').removeClass('fade-out')
-                            }
-                            
-                        })
-    
-                        function moveCursor() {
-                            let iconsX = xGetter('.home-vid-ic-wrap');
-                            let iconsY = yGetter('.home-vid-ic-wrap');
-                            let vidBoundary = $('.home-intro-vid-overlay').get(0);
-    
-                            if ($('.home-vid-ic-wrap').length) {
-                                xSetter('.home-vid-ic-wrap')(lerp(iconsX, pointer.x - vidBoundary.getBoundingClientRect().left), 0.01);
-                                ySetter('.home-vid-ic-wrap')(lerp(iconsY, pointer.y - vidBoundary.getBoundingClientRect().top), 0.01);
-                                requestAnimationFrame(moveCursor)
-                            }
+                            requestAnimationFrame(moveCursor)
+                        } else {
+                            $('.home-vid-ic-wrap:not(.mod-show)').remove()
                         }
-                        requestAnimationFrame(moveCursor)
+
                     }
 
-                    let pathElement = $('.home-intro-vid-stick-wrap').get(0).getBoundingClientRect()
+                    let pathElement = $('.home-intro-vid-stick-wrap').offset().top + $('.home-intro-vid-stick-wrap').height()
                     $('.home-intro-vid').on('click', function(e) {
                         e.preventDefault()
                         console.log('click play video')
-                        lenis.scrollTo(pathElement.bottom - $(window).height() * .88, {
-                            duration: 1.2
-                        })
-                        startVideo({delay: 1.2});
+                        if ($(window).width() > 991) {
+                            let scrollVal = pathElement - $(window).height() * .88;
+                            if ($(window).width() > 991) {
+                                lenis.stop();
+                            }
+                            lenis.scrollTo(scrollVal, {
+                                duration: 1.2,
+                                lock: true,
+                                force: true
+                            })
+
+                            $(this).css('pointer-events','none')
+                            setTimeout(() => {
+                                $(this).css('pointer-events','auto')
+                            }, 1200);
+                            startVideo({video: '#vidHomeMain', delay: 1.2});
+                        } else {
+                            startVideo({video: '#vidHomeMain', delay: 0})
+                        }
+
                     })
                     $('.home-vid-ic-close').on('click', function(e) {
                         e.preventDefault();
-                        stopVideo()
+                        stopVideo({video: '#vidHomeMain'})
                     })
                     function startVideo({video, delay = 1.2}) {
                         if (video) {
-                            let el = $(video);
+                            let el = $(video).get(0);
+                            el.play()
                         }
-                        setTimeout(() => {
-                            lenis.stop();
-                        }, delay * 1000);
+
                         setTimeout(() => {
                             $('.home-vid-embed-main').addClass('active')
                         }, delay * 500);
@@ -1780,9 +2239,13 @@ const mainScript = () => {
                         $('.header-wrap').addClass('hidden')
                         $('.header-bg').addClass('hidden')
                     }
-                    function stopVideo(video) {
-                        let el = $(video);
-                        lenis.start();
+                    function stopVideo({video}) {
+                        let el = $(video).get(0);
+                        el.pause();
+
+                        if ($(window).width() > 991) {
+                            lenis.start();
+                        }
                         $('.home-vid-ic-close').removeClass('active')
                         $('.header-wrap').removeClass('hidden')
                         $('.header-bg').removeClass('hidden')
@@ -1802,13 +2265,21 @@ const mainScript = () => {
                         scrub: true,
                     }
                 })
-                homePreTl
-                .fromTo('.home-pre-title:nth-child(1)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
-                .from('.pre-invest-x.right .pre-invest-x-inner', {yPercent: -100, duration: 2.5, ease: Power1.easeOut}, '<=0')
-                .to('.home-pre-title:nth-child(1)', {autoAlpha: 0, duration: 2.5})
-                .fromTo('.home-pre-title:nth-child(2)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
-                .from('.pre-invest-x.left .pre-invest-x-inner', {yPercent: -100, duration: 2.5, ease: Power1.easeOut}, '<=0')
-                .to('.home-pre-title:nth-child(2)', {autoAlpha: 0, duration: 2.5})
+                if (!isTouchDevice()) {
+                    homePreTl
+                    .fromTo('.home-pre-title:nth-child(1)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
+                    .from('.pre-invest-x.right .pre-invest-x-inner', {yPercent: -100, duration: 2.5, ease: Power1.easeOut}, '<=0')
+                    .to('.home-pre-title:nth-child(1)', {autoAlpha: 0, duration: 2.5})
+                    .fromTo('.home-pre-title:nth-child(2)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
+                    .from('.pre-invest-x.left .pre-invest-x-inner', {yPercent: -100, duration: 2.5, ease: Power1.easeOut}, '<=0')
+                    .to('.home-pre-title:nth-child(2)', {autoAlpha: 0, duration: 2.5})
+                } else {
+                    homePreTl
+                    .fromTo('.home-pre-title:nth-child(1)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
+                    .to('.home-pre-title:nth-child(1)', {autoAlpha: 0, duration: 2.5})
+                    .fromTo('.home-pre-title:nth-child(2)', {autoAlpha: 0}, {autoAlpha: 1, duration: 2.5})
+                    .to('.home-pre-title:nth-child(2)', {autoAlpha: 0, duration: 2.5})
+                }
             }
             homePreInit();
             function homeInvestInit() {
@@ -1829,32 +2300,65 @@ const mainScript = () => {
             }
             homeInvestInit()
             function homeInvestMainInit() {
-                const homeInvestMainTitle = new SplitText('.home-invest-sub', {type: 'lines, chars'});
-                let homeInvestMainTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-invest-sub',
-                        start: 'top bottom-=25%',
-                        end: 'end end',
-                        scrub: true,
-                    }
-                })
-                homeInvestMainTl
-                .to(homeInvestMainTitle.chars, {color: '#ffffff', duration: .5, stagger: 0.4})
+                if ($(window).width() > 991 && isTouchDevice()) {
+                    gsap.set('.home-invest-sub', {color: '#ffffff'})
+                    $('.home-invest-marquee-stick-wrap').css({
+                        'display': 'flex',
+                        'justify-content': 'center',
+                        'align-items': 'center'
+                    })
 
-                let homeInvestMarqueeTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-invest-marquee-stick-wrap',
-                        start: 'top+=50% bottom',
-                        end: `bottom+=${$(window).height()} top+=75%'`,
-                        scrub: true,
+                    let rightClone = $('.home-invest-marquee-txt-wrap.from-right .home-invest-marquee-txt').clone();
+                    $('.home-invest-marquee-txt-wrap.from-right').prepend(rightClone.clone())
+                    $('.home-invest-marquee-txt-wrap.from-right .home-invest-marquee-txt').addClass('anim-marquee-right')
+
+                    let leftClone = $('.home-invest-marquee-txt-wrap.from-left .home-invest-marquee-txt').clone();
+                    $('.home-invest-marquee-txt-wrap.from-left').prepend(leftClone.clone())
+                    $('.home-invest-marquee-txt-wrap.from-left .home-invest-marquee-txt').addClass('anim-marquee-left')
+
+
+
+                } else {
+                    const homeInvestMainTitle = new SplitText('.home-invest-sub', {type: 'lines, chars'});
+                    let homeInvestMainTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-invest-sub',
+                            start: 'top bottom-=25%',
+                            end: 'end end',
+                            scrub: true,
+                        }
+                    })
+                    homeInvestMainTl
+                    .to(homeInvestMainTitle.chars, {color: '#ffffff', duration: .5, stagger: 0.4})
+
+                    let homeInvestTitleNoAnimTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-invest-marquee-stick-wrap',
+                            start: 'top bottom',
+                            end: `bottom+=${$(window).height()} bottom`,
+                            scrub: true,
+                        }
+                    })
+                    let distance = $('.home-invest-marquee-stick-wrap').height() - $('.home-invest-title-noanim').height();
+                    if (viewport.width > 767) {
+                        homeInvestTitleNoAnimTl.to('.home-invest-title-noanim', { y: distance, duration: 5, ease: 'none' }, '0')
                     }
-                })
-                let distance = $('.home-invest-marquee-stick-wrap').height() - $('.home-invest-marquee').height();
-                homeInvestMarqueeTl
-                .to('.home-invest-marquee', {y: distance, duration: 5, ease: 'none'})
-                .to('.pre-invest-bg-wrap.bg-x .pre-invest-bg:not(.mod-home-cta-mb)', {autoAlpha: 0, yPercent: -15, duration: 5, ease: 'power1.in'}, '0')
-                .fromTo('.home-invest-marquee-txt-wrap.from-right .home-invest-marquee-txt', {xPercent: 100}, {xPercent: -100, duration: 10}, '0')
-                .fromTo('.home-invest-marquee-txt-wrap.from-left .home-invest-marquee-txt', {xPercent: -100}, {xPercent: 100, duration: 10}, '0')
+                    homeInvestTitleNoAnimTl
+                    .to('.pre-invest-bg-wrap.bg-x .pre-invest-bg:not(.mod-home-cta-mb)', {autoAlpha: 0, yPercent: -15, duration: 5, ease: 'power1.in'}, '0')
+
+                    if (viewport.width > 767 && !isTouchDevice()) {
+                        const homeInvestTitleNoAnim = new SplitText('.home-invest-title-noanim-inner', {type: 'lines, chars'});
+                        const tl = gsap.timeline({
+                            scrollTrigger: {
+                                trigger: '.home-invest-marquee-stick-wrap',
+                                start: `top bottom-=${($(window).height() * 0.25)}`,
+                                end: `bottom top+=${($(window).height() * 0.25)}`,
+                                scrub: true,
+                            }
+                        })
+                        tl.from(homeInvestTitleNoAnim.chars, {color: 'rgb(157, 157, 157)', duration: .5, stagger: 0.4 }, '0')
+                    }
+                }
             }
             homeInvestMainInit()
             function homeInvestStepInit() {
@@ -1866,14 +2370,23 @@ const mainScript = () => {
                         scrub: true,
                     }
                 })
-                homeInvestStepTl
-                .from('.home-pre-invest-wrap .pre-invest-slash.right .pre-invest-slash-inner', {yPercent: -100, duration: 2.5}, '<=0')
-                .from('.home-pre-invest-wrap .pre-invest-slash.left .pre-invest-slash-inner', {yPercent: 100, duration: 2.5}, '<=1.5')
-                .from('.home-invest-step-item-inner .home-invest-item-step-txt', {autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out"}, '0')
-                .from('.home-invest-step-item-inner .home-invest-step-number-wrap', {autoAlpha: 0, xPercent: 220, duration: 2.5, stagger: 1, ease: "power1.out"}, '0')
-                .from('.home-invest-step-item-inner .home-invest-step-title', {autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out"}, '<=0')
-                .from('.home-invest-step-item-inner .home-invest-step-para', {autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out"}, '<=.2')
-                .fromTo('.header-bg .header-bg-top, .header-bg .header-bg-bot ', {autoAlpha: 1}, {autoAlpha: 0, duration: 5.5}, '0')
+                if (!isTouchDevice()) {
+                    homeInvestStepTl
+                    .from('.home-pre-invest-wrap .pre-invest-slash.right .pre-invest-slash-inner', {yPercent: -100, duration: 2.5}, '<=0')
+                    .from('.home-pre-invest-wrap .pre-invest-slash.left .pre-invest-slash-inner', {yPercent: 100, duration: 2.5}, '<=1.5')
+                    if (viewport.width > 767) {
+                        homeInvestStepTl
+                            .from('.home-invest-step-item-inner .home-invest-item-step-txt', { autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out" }, '0')
+                            .from('.home-invest-step-item-inner .home-invest-step-number-wrap', {autoAlpha: 0, xPercent: 220, duration: 2.5, stagger: 1, ease: "power1.out"}, '0')
+                            .from('.home-invest-step-item-inner .home-invest-step-title', {autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out"}, '<=0')
+                            .from('.home-invest-step-item-inner .home-invest-step-para', {autoAlpha: 0, xPercent: 100, duration: 2.5, stagger: 1, ease: "power1.out"}, '<=.2')
+                    }
+                } else {
+                    gsap.set('.home-pre-invest-wrap .pre-invest-slash.right .pre-invest-slash-inner', {autoAlpha: 0})
+                    gsap.set('.home-pre-invest-wrap .pre-invest-slash.left .pre-invest-slash-inner', {autoAlpha: 0})
+                0}
+                homeInvestStepTl.fromTo('.header-bg .header-bg-top, .header-bg .header-bg-bot ', {autoAlpha: 1}, {autoAlpha: 0, duration: 5.5}, '0')
+
             }
             homeInvestStepInit()
             function homeDiscorInit() {
@@ -1888,34 +2401,36 @@ const mainScript = () => {
                 homeDiscorTl
                 .to('.home-pre-invest-wrap .pre-invest-bg-wrap.bg-slash .pre-invest-slash', {y: `0` , duration: 2.5, ease: 'none'})
                 .to('.home-invest-steps-wrap', {y: `15vh`, duration: 2.5, autoAlpha: 0, ease: 'none'}, '0')
-                .to('.sc-home-discor .home-discor-bg-white', {y: `-25vh`, duration: 2.5, ease: 'power1.out'}, '0')
+                if (!isTouchDevice()) {
+                    homeDiscorTl
+                    .to('.sc-home-discor .home-discor-bg-white', {y: `-25vh`, duration: 2.5, ease: 'power1.out'}, '0')
+                } else {
+                    gsap.set('.sc-home-discor .home-discor-bg-white', {y: `-25vh`}, '0')
+                }
 
-                gsap.set('.home-discor-item', {perspective: '40rem', perspectiveOrigin: 'top'})
-                gsap.set('.home-discor-item-inner-wrap', {transformOrigin: 'top'})
-                const homeDiscorTitleTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.sc-home-discor .home-discor-main-wrap',
-                        start: 'top top+=75%',
-                        end: 'bottom top+=75%',
-                        scrub: true,
-                    }
-                })
-                homeDiscorTitleTl
-                .from('.home-discor-item-inner-wrap', {rotationX: -45, autoAlpha: 0, duration: 2.5, stagger: 2})
+                if ($(window).width() > 991 && isTouchDevice()) {
 
-                if ($(window).width() > 991) {
-                    const homeDiscorBodyTl = gsap.timeline({
+                } else {
+                    gsap.set('.home-discor-item', {perspective: '40rem', perspectiveOrigin: 'top'})
+                    gsap.set('.home-discor-item-inner-wrap', {transformOrigin: 'top'})
+                    const homeDiscorTitleTl = gsap.timeline({
                         scrollTrigger: {
-                            trigger: '.home-discor-body-wrap',
-                            start: 'top bottom',
-                            endTrigger: '.home-discor-bg-item.mod-invest .home-discor-bg-item-img-wrap',
-                            end: 'top top',
-                            scrub: true,
+                            trigger: '.sc-home-discor .home-discor-main-wrap',
+                            start: 'top top+=75%',
+                            end: 'bottom top+=75%',
+                            scrub: viewportBreak({
+                                desktop: true,
+                                mobile: false
+                            }),
                         }
                     })
-                    homeDiscorBodyTl
-                    .fromTo('.home-discor-bg-item.mod-secur .home-discor-bg-item-img-inner', {yPercent: 40}, {yPercent: -40, duration: 2.5})
-                    .fromTo('.home-discor-bg-item.mod-distill .home-discor-bg-item-img-inner', {yPercent: -30}, {yPercent: 30, duration: 2.5}, '0')
+                    homeDiscorTitleTl
+                    .from('.home-discor-item-inner-wrap', {
+                        rotationX: -45,
+                        autoAlpha: 0,
+                        duration: viewportBreak({ desktop: 2.5, mobile: .8 }),
+                        stagger: viewportBreak({ desktop: 2, mobile: .3 })
+                    })
                 }
 
                 function homeInvestStepMouseMove() {
@@ -1941,7 +2456,7 @@ const mainScript = () => {
                             let iconsY = yGetter('.home-invest-steps-cursor');
                             let iconsZrot = zRotGetter('.home-invest-steps-cursor');
                             let stepsBoundary = $('.home-invest-steps-cursor-wrap').get(0);
-    
+
                             if ($('.home-invest-steps-cursor').length) {
                                 xSetter('.home-invest-steps-cursor')(lerp(iconsX, (((pointer.x / (viewport.width )) - 0.5) * 40), 0.06));
                                 ySetter('.home-invest-steps-cursor')(lerp(iconsY, pointer.y - stepsBoundary.getBoundingClientRect().top , 0.06));
@@ -1954,51 +2469,103 @@ const mainScript = () => {
                 }
                 homeInvestStepMouseMove()
 
-                let allSelectImg = $('.home-discor-bg-item.mod-distill, .home-discor-bg-item.mod-secur')
-                allSelectImg.each((index, el) => {
-                    gsap.set(el.querySelector('.home-discor-bg-item-img-inner-wrap'), {clipPath: 'inset(20%)'})
-                    gsap.set(el.querySelector('.home-discor-bg-item-img-inner-wrap img'), {scale: 1.4, autoAlpha: 0})
-                    // let itemLabel
-                    // if (el.hasClass('mod-distill')) {
-                    //     console.log(true)
-                    //     itemLabel = el.querySelector('.heading.home-discor-distill')
-                    // } else {
-                    //     itemLabel = el.querySelector('.heading.home-discor-secur')
-                    // }
-                    const howSelectItemImgTl = gsap.timeline({
-                        scrollTrigger: {
-                            trigger: el,
-                            start: 'top bottom-=28%',
+
+                if ($(window).width() > 991 && isTouchDevice()) {
+
+                } else {
+                    let allSelectImg = $('.home-discor-bg-item.mod-info')
+                    allSelectImg.each((index, el) => {
+                        gsap.set(el.querySelector('.home-discor-bg-item-img-inner-wrap'), {clipPath: 'inset(20%)'})
+                        gsap.set(el.querySelector('.home-discor-bg-item-img-inner-wrap img'), {scale: 1.4, autoAlpha: 0})
+                        const howSelectItemImgTl = gsap.timeline({
+                            scrollTrigger: {
+                                trigger: el,
+                                start: 'top bottom-=28%',
+                            },
+                            onComplete() {
+                                el.classList.add('on-hover');
+                                el.querySelector('img').classList.add('on-hover')
+                            }
+                        })
+                        howSelectItemImgTl
+                        .to(el.querySelector('.home-discor-bg-item-img-inner-wrap'), { clipPath: 'inset(0%)', duration: 1.2, ease: 'expo.out'})
+                        .to(el.querySelector('.home-discor-bg-item-img-inner-wrap img'), { scale: 1, duration: 1.2, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'}, '0')
+                    })
+                }
+                if ($(window).width() > 991) {
+                    $('.home-discor-item-toggle').on('click', function(e) {
+                        e.preventDefault();
+                        if (!$(this).hasClass('on-expand')) {
+                            $(this).closest('.home-discor-data-content').find('[data-discor="body"]').addClass('expand')
+                            $(this).text('Collapse')
+                            $(this).addClass('on-expand')
+                        } else {
+                            $(this).closest('.home-discor-data-content').find('[data-discor="body"]').removeClass('expand')
+                            $(this).text('Learn more')
+                            $(this).removeClass('on-expand')
                         }
                     })
-                    howSelectItemImgTl
-                    .to(el.querySelector('.home-discor-bg-item-img-inner-wrap'), { clipPath: 'inset(0%)', duration: 1.2, ease: 'expo.out'})
-                    .to(el.querySelector('.home-discor-bg-item-img-inner-wrap img'), { scale: 1, duration: 1.2, autoAlpha: 1, ease: 'expo.out'}, '0')
-                    //.from(itemLabel, {autoAlpha: 0, y: '4rem', duration: .6, ease: 'power1.out'}, '.6')
-                })
+                }
+
+                // $('.home-discor-bg-item.mod-info').on('pointerenter', function(e) {
+                //     $('.cursor-inner').addClass('on-discor')
+                // })
+                // $('.home-discor-bg-item.mod-info').on('pointerleave', function(e) {
+                //     $('.cursor-inner').removeClass('on-discor')
+                // })
+
+                // lenis.on('scroll', function(inst) {
+                //     for (let x = 0; x < $('.home-discor-bg-item.mod-info .home-discor-bg-item-img-inner').length; x++) {
+                //         let offset = $('.home-discor-bg-item.mod-info .home-discor-bg-item-img-inner').eq(x).get(0).getBoundingClientRect().top;
+                //         if (offset < $(window).height() && offset > 0) {
+                //             console.log(x)
+                //             $('.home-discor-bg-item.mod-info .home-discor-bg-item-img-inner').parent().removeClass('inview')
+                //             $('.home-discor-bg-item.mod-info .home-discor-bg-item-img-inner').eq(x).parent().addClass('inview')
+                //         }
+                //     }
+                // })
             }
             homeDiscorInit();
             function homeDiscorBgInit() {
                 if ($(window).width() > 991) {
-                    gsap.set('.home-discor-bg-item.mod-invest', {marginLeft: '-19.1145833333vw', marginRight: '-19.1145833333vw', height: '48.43vw'})
-                    const homeDiscorBgTl = gsap.timeline({
-                        scrollTrigger: {
-                            trigger: '.home-discor-body-wrap.z-index-top',
-                            start: 'bottom-=50% bottom',
-                            end: `bottom bottom`,
-                            scrub: .4,
-                        }
-                    })
-                    setTimeout(() => {
-                        gsap.set('.home-discor-bg-item.mod-invest', {clearProps:'all'})
-                        homeDiscorBgTl
-                        .to('.home-discor-bg-item.mod-invest', {marginLeft: '-19.1145833333vw', marginRight: '-19.1145833333vw', height: '48.43vw', duration: 2.5, ease: 'power1.inout'})
-                        .to('.home-discor-bg-item.mod-invest .home-discor-bg-item-inner', {marginLeft: '0', marginRight: '0', marginTop: '0', duration: 2.5, ease: 'power1.inout'},'0')
-                        .to('.home-discor-bg-item.mod-invest .home-discor-invest-grad', {autoAlpha: 1, duration: 2.5}, '0')
-                        .to('.home-discor-hover-item.mod-invest', {yPercent: -200, autoAlpha: 0, pointerEvents: 'none', duration: 2.5}, '0')
-                        //-19.1145833333vw
-                    }, 100);
-    
+                    let heightVal;
+                    if ($(window).width() > 1440) {
+                        heightVal = '48.43vw';
+                    } else {
+                        heightVal = '53.43vw';
+                    }
+                    gsap.set('.home-discor-bg-item.mod-invest', {marginLeft: '-19.1145833333vw', marginRight: '-19.1145833333vw', height: heightVal})
+
+                    if (!isTouchDevice()) {
+                        const homeDiscorBgTl = gsap.timeline({
+                            scrollTrigger: {
+                                trigger: '.home-discor-body-wrap.z-index-top',
+                                start: 'bottom-=50% bottom',
+                                end: `bottom bottom`,
+                                scrub: .4,
+                            }
+                        })
+                        setTimeout(() => {
+                            gsap.set('.home-discor-bg-item.mod-invest', {clearProps:'all'})
+                            homeDiscorBgTl
+                            .to('.home-discor-bg-item.mod-invest', {marginLeft: '-19.1145833333vw', marginRight: '-19.1145833333vw', height: heightVal, duration: 2.5, ease: 'power1.inout'})
+                            .to('.home-discor-bg-item.mod-invest .home-discor-bg-item-inner', {marginLeft: '0', marginRight: '0', marginTop: '0', duration: 2.5, ease: 'power1.inout'},'0')
+                            .to('.home-discor-bg-item.mod-invest .home-discor-invest-grad', {autoAlpha: 1, duration: 2.5}, '0')
+                            .to('.home-discor-hover-item.mod-invest', {yPercent: -200, autoAlpha: 0, pointerEvents: 'none', duration: 2.5}, '0')
+                            //-19.1145833333vw
+                        }, 100);
+                    } else {
+                        setTimeout(() => {
+                            gsap.set('.home-discor-bg-item.mod-invest', {clearProps:'all'})
+                            gsap.set('.home-discor-bg-item.mod-invest', {marginLeft: '-19.1145833333vw', marginRight: '-19.1145833333vw', height: heightVal})
+                            gsap.set('.home-discor-bg-item.mod-invest .home-discor-bg-item-inner', {marginLeft: '0', marginRight: '0', marginTop: '0'})
+                            gsap.set('.home-discor-bg-item.mod-invest .home-discor-invest-grad', {autoAlpha: 1})
+                            gsap.set('.home-discor-hover-item.mod-invest', {yPercent: -200, autoAlpha: 0, pointerEvents: 'none'})
+                            //-19.1145833333vw
+                        }, 100);
+                    }
+
+
                     const homeDiscorHeaderBgTl = gsap.timeline({
                         scrollTrigger: {
                             trigger: '.home-discor-bg-item.mod-invest',
@@ -2014,41 +2581,57 @@ const mainScript = () => {
             }
             homeDiscorBgInit();
             function homeDocInit() {
-                const homeDocTitle = new SplitText('.home-doc-title', { type: 'lines, chars'});
-                const homeDocTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.sc-home-doc',
-                        start: 'top top+=25%',
-                        end: 'bottom bottom-=25%',
-                        scrub: .8,
-                    }
-                })
-                homeDocTl
-                .to(homeDocTitle.chars, {color: '#ffffff', duration: .1, stagger: 0.02, ease: Power1.easeOut}, '0')
+                if ($(window).width() > 991 && isTouchDevice()) {
+                    gsap.set('.home-doc-title', {color: '#ffffff'})
+                } else {
+                    const homeDocTitle = new SplitText('.home-doc-title', { type: 'lines, chars'});
+                    const homeDocTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.sc-home-doc',
+                            start: `top top+=${viewportBreak({ desktop: 25, mobile: 75 })}%`,
+                            endTrigger: `${viewportBreak({ desktop: '.sc-home-doc', mobile: '.home-doc-title' })}`,
+                            end: `bottom ${viewportBreak({ desktop: 'bottom-=25%', mobile: 'top+=38%' })}`,
+                            scrub: .8,
+                        }
+                    })
+                    homeDocTl
+                    .to(homeDocTitle.chars, {color: '#ffffff', duration: .1, stagger: 0.02, ease: Power1.easeOut}, '0')
+                }
 
-                const homeDocbgTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.sc-home-doc',
-                        start: 'top top',
-                        end: `top+=${$(window).height() / 2} top`,
-                        scrub: true,
-                    }
-                })
-                homeDocbgTl
-                .from('.home-doc-prog-wrap .pre-invest-slash.right .pre-invest-slash-inner', {yPercent: -100, duration: 2.5}, '<=0')
-                .from('.home-doc-prog-wrap .pre-invest-slash.left .pre-invest-slash-inner', {yPercent: 100, duration: 2.5}, '<=1.5')
+                if ($(window).width() > 991 && isTouchDevice()) {
+                    gsap.set('.home-doc-prog-wrap .pre-invest-slash.right .pre-invest-slash-inner', {autoAlpha: 0})
+                    gsap.set('.home-doc-prog-wrap .pre-invest-slash.left .pre-invest-slash-inner', {autoAlpha: 0})
+                } else {
+                    const homeDocbgTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.sc-home-doc',
+                            start: 'top top',
+                            end: `top+=${$(window).height() / 2} top`,
+                            scrub: true,
+                        }
+                    })
+                    homeDocbgTl
+                    .from('.home-doc-prog-wrap .pre-invest-slash.right .pre-invest-slash-inner', {yPercent: -100, duration: 2.5}, '<=0')
+                    .from('.home-doc-prog-wrap .pre-invest-slash.left .pre-invest-slash-inner', {yPercent: 100, duration: 2.5}, '<=1.5')
+                }
 
-                const homeDocBookTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-doc-book-stick',
-                        start: 'top bottom',
-                        end: 'bottom top',
-                        scrub: 0.6,
-                    }
-                })
-                homeDocBookTl
-                .fromTo('.home-doc-book-stick img', {yPercent: 10, xPercent: -10}, {yPercent: -10, xPercent: 0, duration: 2.5, ease: 'none'})
-                //.fromTo('.home-doc-title-wrap', {y: '6.2rem'}, {y: '-6.2rem', duration: 2.5}, '0')
+                if (!isTouchDevice()) {
+                    const homeDocBookTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-doc-book-stick',
+                            start: 'top bottom',
+                            end: 'bottom top',
+                            scrub: viewportBreak({ desktop: .6, mobile: false }),
+                        }
+                    })
+                    homeDocBookTl
+                        .fromTo('.home-doc-book-stick img',
+                            { yPercent: 10, xPercent: -10 },
+                            {   yPercent: viewportBreak({ desktop: -10, mobile: -5 }),
+                                xPercent: viewportBreak({ desktop: 0, mobile: -5 }),
+                                duration: 2.5, ease: 'none'
+                            })
+                }
 
                 function homeDocMouseMove() {
                     $('.home-doc-cursor-sticky').on('pointerover', function(e) {
@@ -2130,16 +2713,22 @@ const mainScript = () => {
             }
             homeDocInit()
             function homeProgInit() {
-                const homeProgMarqueeTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-prog-marquee',
-                        start: 'top bottom',
-                        end: `bottom+=${$(window).height() * 2.5} top+=75%`,
-                        scrub: true,
-                    }
-                })
-                homeProgMarqueeTl
-                .fromTo('.home-prog-marquee-txt-wrap.from-right .home-prog-marquee-txt', {xPercent: 100}, {xPercent: -100, duration: 2.5}, '0')
+                if ($(window).width() > 991 && isTouchDevice()) {
+                    let rightClone = $('.home-prog-marquee-txt-wrap .home-prog-marquee-txt').clone();
+                    $('.home-prog-marquee-txt-wrap').prepend(rightClone.clone())
+                    $('.home-prog-marquee-txt-wrap .home-prog-marquee-txt').addClass('anim-marquee-right')
+                } else {
+                    const homeProgMarqueeTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-prog-marquee',
+                            start: 'top bottom',
+                            end: `bottom+=${$(window).height() * 2.5} top+=75%`,
+                            scrub: true,
+                        }
+                    })
+                    homeProgMarqueeTl
+                    .fromTo('.home-prog-marquee-txt-wrap.from-right .home-prog-marquee-txt', {xPercent: 100}, {xPercent: -100, duration: 2.5}, '0')
+                }
 
                 const homeProgContentTl = gsap.timeline({
                     scrollTrigger: {
@@ -2149,35 +2738,49 @@ const mainScript = () => {
                         scrub: true,
                     }
                 })
-                homeProgContentTl
-                .fromTo('.home-prog-img-wrap', {y: '-25vh'}, { y: '25vh',  duration: 2.5, ease: 'power1.inout'})
-                .from('.home-prog-main', {y: '25vh', duration: 2.5}, '0')
+                if (viewport.width > 767 && !isTouchDevice()) {
+                    homeProgContentTl
+                        .fromTo('.home-prog-img-wrap', { y: '-25vh' }, { y: '25vh', duration: 2.5, ease: 'power1.inout' })
+                        .from('.home-prog-main', {y: '25vh', duration: 2.5}, '0')
+                }
 
-                const homeProgTitle = new SplitText('.home-prog-title', {type: 'lines, chars'});
-                const homeProgTitleTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-prog-title',
-                        start: 'top bottom',
-                        end: 'bottom top+=45%',
-                        scrub: true,
-                    }
-                })
-                homeProgTitleTl
-                .from(homeProgTitle.chars, {color: 'rgb(79, 79, 79)', duration: .1, stagger: 0.02, ease: 'power1.out'})
+                if (viewport.width > 767 && isTouchDevice()) {
 
-                gsap.set('.home-prog-item', {perspective: '40rem', perspectiveOrigin: 'top'})
-                gsap.set('.home-prog-item-wrap', {transformOrigin: 'top'})
-                const homeProgListTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.home-prog-main-list',
-                        start: 'top top+=65%',
-                        end: 'bottom top+=65%',
-                        scrub: true,
-                    }
-                })
-                homeProgListTl
-                .from('.home-prog-item-wrap', {rotationX: -45, autoAlpha: 0, duration: 2.5, stagger: 2},'0')
-                .from('.home-prog-main .txt-link', {yPercent:100, autoAlpha: 0, duration: 2.5}, '>=-2')
+                } else {
+                    const homeProgTitle = new SplitText('.home-prog-title', {type: 'lines, chars'});
+                    const homeProgTitleTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-prog-title',
+                            start: 'top bottom',
+                            end: 'bottom top+=45%',
+                            scrub: true,
+                        }
+                    })
+                    homeProgTitleTl
+                    .from(homeProgTitle.chars, {color: 'rgb(79, 79, 79)', duration: .1, stagger: 0.02, ease: 'power1.out'})
+
+                    gsap.set('.home-prog-item', {perspective: '40rem', perspectiveOrigin: 'top'})
+                    gsap.set('.home-prog-item-wrap', {transformOrigin: 'top'})
+                    const homeProgListTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.home-prog-main-list',
+                            start: 'top top+=65%',
+                            end: 'bottom top+=65%',
+                            scrub: viewportBreak({
+                                desktop: true,
+                                mobile: false
+                            })
+                        }
+                    })
+                    homeProgListTl
+                        .from('.home-prog-item-wrap', {
+                            rotationX: -45,
+                            autoAlpha: 0,
+                            duration: viewportBreak({ desktop: 2.5, mobile: .8 }),
+                            stagger: viewportBreak({ desktop: 2, mobile: .3 })
+                        }, '0')
+                    .from('.home-prog-main .btn-md.mod-outline', {yPercent:100, autoAlpha: 0, duration: 2.5}, '>=-2')
+                }
 
                 const homeProgRemoveContentTl = gsap.timeline({
                     scrollTrigger: {
@@ -2216,30 +2819,38 @@ const mainScript = () => {
             }
             homeProgInit();
             function homeCtaInit() {
-                const homeCtaTl = gsap.timeline({
-                    scrollTrigger: {
-                        trigger: '.sc-home-cta',
-                        start: `top top`,
-                        end: `bottom bottom`,
-                        scrub: true,
-                    }
-                })
-                homeCtaTl
-                .from('.home-cta-bg-wrap circle', {'stroke-dashoffset': 100, duration: 1})
-                .from('.home-cta-bg-wrap .home-cta-bg-line-inner', {transformOrigin: '0%', scaleX: 0, duration: 1}, '<=0')
-                .from('.home-cta-bg-wrap .home-cta-bg-line-hl', {autoAlpha: 0, duration: 1.5, stagger: 0.025}, '>=0')
+                if (!isTouchDevice()) {
+                    const homeCtaTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.sc-home-cta',
+                            start: `top top`,
+                            end: `bottom bottom`,
+                            scrub: true,
+                        }
+                    })
+                    homeCtaTl
+                    .from('.home-cta-bg-wrap circle', {'stroke-dashoffset': 100, duration: 1})
+                    .from('.home-cta-bg-wrap .home-cta-bg-line-inner', {transformOrigin: '0%', scaleX: 0, duration: 1}, '<=0')
+                    .from('.home-cta-bg-wrap .home-cta-bg-line-hl', {autoAlpha: 0, duration: 1.5, stagger: 0.025}, '>=0')
 
-                .from('.home-cta-main > *', {autoAlpha: 0, duration: 1, stagger: .05, y: 20}, '1.5')
+                    .from('.home-cta-main > *', {autoAlpha: 0, duration: 1, stagger: .05, y: 20}, '1.5')
 
-                .to('.home-cta-bg-wrap .home-cta-bg-line-hl', {autoAlpha: 0, duration: 1, stagger: 0.025}, '2.5')
-                .to('.home-cta-bg-wrap .home-cta-bg-line-inner', {transformOrigin: '100%', scaleX: 0, duration: 1}, '2.5')
-                .to('.home-cta-bg-wrap circle:nth-child(1)', {'stroke-dashoffset': -100, duration: 1}, '2.5')
-                .to('.home-cta-bg-wrap circle:nth-child(2)', {'stroke-dashoffset': 300, duration: 1}, '2.5')
-                .to('.home-cta-main > *', {autoAlpha: 0, filter: 'blur(5px)', duration: 1, y: 0}, '3')
+                    .to('.home-cta-bg-wrap .home-cta-bg-line-hl', {autoAlpha: 0, duration: 1, stagger: 0.025}, '2.5')
+                    .to('.home-cta-bg-wrap .home-cta-bg-line-inner', {transformOrigin: '100%', scaleX: 0, duration: 1}, '2.5')
+                    .to('.home-cta-bg-wrap circle:nth-child(1)', {'stroke-dashoffset': -100, duration: 1}, '2.5')
+                    .to('.home-cta-bg-wrap circle:nth-child(2)', {'stroke-dashoffset': 300, duration: 1}, '2.5')
+                    .to('.home-cta-main > *', {autoAlpha: 0, filter: 'blur(5px)', duration: 1, y: 0}, '3')
+                } else {
+                    $('.sc-home-cta').css({
+                        'height': '200vh',
+                        'margin-top': '0',
+                        'margin-bottom': '-100vh'
+                    })
+                }
             }
             if ($(window).width() > 991) {
                 homeCtaInit()
-            }  
+            }
         },
         beforeLeave() {
             console.log('leave home')
@@ -2270,18 +2881,8 @@ const mainScript = () => {
                         scrub: true
                     }
                 })
-                let offsetVal;
-                if ($(window).width > 991) {
-                    offsetVal = '-20vh';
-                } else if ($(window).width > 768) {
-                    offsetVal = '-14rem';
-                } else {
-                    offsetVal = '-10rem';
-                }
                 homeHeroImgTl
-                .to('.how-hero-img-wrap-inner', {y: offsetVal, duration: 2.5, ease: 'none'})
-
-
+                .fromTo('.how-hero-img-wrap-inner img', {'object-position': '50% 0%'}, {'object-position': '50% 100%', ease: 'linear'})
             }
             howHeroInit()
 
@@ -2472,8 +3073,22 @@ const mainScript = () => {
 
             function getFormType() {
                 let formType = window.location.search.replace('?type=','');
-                console.log(formType)
-                setupForm(formType)
+                console.log(formType == 'individual')
+                if (formType == 'individual' || formType == 'trust' || formType == 'joint' || formType == 'corporate') {
+                    $('[popup-content="signup"]').removeClass('active')
+                    setupForm(formType)
+                } else {
+                    console.log('empty')
+                    $('[popup-content="signup"]').addClass('active')
+                    $('[data-signup]').attr('data-barba-prevent','self')
+                    $('[data-signup]').on('click', function(e) {
+                        e.preventDefault();
+                        let formType = $(this).attr('data-signup');
+                        setupForm(formType)
+                        history.replaceState({}, '', `${window.location.pathname + '?type=' + formType}`)
+                        $(this).closest('[popup-content]').removeClass('active')
+                    })
+                }
             }
             getFormType()
 
@@ -2482,7 +3097,8 @@ const mainScript = () => {
                 setupStepContent(formType)
                 $('.hidden-input input').val(formType)
                 console.log($('.hidden-input input').val())
-                inputInteractionInit()
+                $('[data-input-url]').val(window.location.href);
+                inputInteractionInit("#openAccountForm");
                 setupStepInteraction()
                 setupFormValid()
             }
@@ -2572,6 +3188,38 @@ const mainScript = () => {
                     }
                 }
 
+                function stepValidate(form) {
+                    let formData = new FormData();
+                    let success = false;
+
+                    let activeDiv = $('.account-form-person').eq(activeStep);
+                    activeDiv.find('input.w-input').each(function() {
+                        formData.append(this.name, this.value);
+                    });
+
+                    const stepFormsObj = mapFormToObject(form, formData);
+                    const rules = mapObjectFormToValidate(form, stepFormsObj);
+                    const { errorObj, isValidated } = validateForm({
+                        formsObj: stepFormsObj,
+                        rules: rules
+                    });
+                    if (isValidated) {
+                        success = true;
+                        return { success };
+                    }
+                    else {
+                        success = false;
+                        return { errorObj, success };
+                    }
+                }
+
+                function submitLastStep(form) {
+                    let newWin = window.open(buildUrl(form), '_blank', 'toolbar=no,status=no,menubar=no,scrollbars=no,resizable=no,left=10000,top=10000,width=10,height=10,visible=none', '');
+                    newWin.blur();
+                    newWin.close();
+                    $('.signup-success-wrap').addClass('active');
+                }
+
                 $('.account-step-item').on('click', function(e) {
                     e.preventDefault();
                     let thisStep = $(this).index();
@@ -2590,23 +3238,34 @@ const mainScript = () => {
 
                 $('[data-signup-btn="next"]').on('click', function(e) {
                     e.preventDefault();
-                    activeStep +=1;
-                    currentStep +=1;
-                    if (activeStep == stepAmount.length) {
-                        return;
-                    } else {
-                        activeThisStep(activeStep)
+                    const form = $('#openAccountForm').get(0);
+                    const { errorObj: errors, success } = stepValidate(form);
+
+                    if (success) {
+                        activeStep +=1;
+                        currentStep += 1;
+                        if (activeStep == stepAmount.length) {
+                            return;
+                        } else {
+                            activeThisStep(activeStep)
+                        }
+                        errorValidation.reset(form);
+                    }
+                    else {
+                        errorValidation.active(form, errors);
                     }
                 })
 
                 $('[data-signup-btn="submit"]').on('click', function(e) {
                     e.preventDefault();
-                    $('.signup-success-wrap').addClass('active')
+                    submitLastStep($('#openAccountForm'));
                 })
             }
         },
         beforeLeave() {
             console.log('leave openAccount')
+            $('[data-signup]').removeAttr('data-barba-prevent')
+            $('[data-signup]').off('click')
         }
     }
     SCRIPT.contactUsScript = {
@@ -2615,7 +3274,7 @@ const mainScript = () => {
             console.log('enter contactUs')
             $('.contact-add-item-wrap').on('click', function(e) {
                 e.preventDefault();
-                console.log("click ðŸ‘‰ï¸", $(this))
+                console.log("click 👉️", $(this))
                 let country = $(this).attr('data-map-link');
                 $('.contact-add-item-wrap').removeClass('active')
                 $(this).addClass('active');
@@ -2624,7 +3283,12 @@ const mainScript = () => {
                 $(`[data-map="${country}"]`).addClass('active')
             })
 
-            inputInteractionInit()
+            function contactFormInit() {
+                formHandler('#contactUsForm', {
+                    onSuccess: (success) => popupSuccessGeneration(success)
+                });
+            }
+            contactFormInit();
         },
         beforeLeave() {
             console.log('leave contactUs')
@@ -2634,20 +3298,6 @@ const mainScript = () => {
         namespace: 'investmentGuide',
         afterEnter() {
             console.log('enter investmentGuide')
-
-            inputInteractionInit()
-            investmentFomrValid()
-
-            function investmentFomrValid() {
-                console.log('adsdad')
-                $('#investRequire').on('click', function(e) {
-                    if ($(this).parent().find('input').val() == 'true') {
-                        $('#investmentForm').find('.invest-form-submit-wrap .btn').removeClass('btn-disable')
-                    } else {
-                        $('#investmentForm').find('.invest-form-submit-wrap .btn').addClass('btn-disable')
-                    }
-                })
-            }
 
             function investHeroInit() {
                 const investHeroTitle = new SplitText('.invest-hero-title', { type: 'lines, chars'});
@@ -2835,11 +3485,15 @@ const mainScript = () => {
                         trigger: '.invest-form-bg-wrap',
                         start: 'top bottom',
                         end: 'bottom top',
-                        scrub: true
+                        scrub: true,
                     }
                 })
                 investFormBgTl
-                .to('.invest-form-bg-wrap .img-basic', {y: '-20vh', duration: 2.5, ease: 'none'})
+                .fromTo('.invest-form-bg-wrap img', {'object-position': '50% 0%'}, {'object-position': '50% 100%', ease: 'linear'})
+
+                formHandler('#investmentGuideForm', {
+                    onSuccess: (success) => popupSuccessGeneration(success)
+                });
             }
             investFormInit();
 
@@ -2852,6 +3506,17 @@ const mainScript = () => {
         namespace: 'productTemplate',
         afterEnter() {
             console.log('enter productTemplate')
+
+            $('[data-input-url]').val(window.location.href)
+            inputInteractionInit('#productDtlForm')
+            inputRadioInteract('#productDtlForm')
+
+            $('.nav-link, .home-footer-link').removeClass('active')
+            let productType = $(`[data-title]`).attr('data-title');
+            console.log(productType)
+            $(`.nav-link.w--current`).addClass('active')
+            $(`.home-footer-link.w--current`).addClass('active')
+
             function prodHeroInit() {
                 const prodHeroTitle = new SplitText('.prod-hero-title', { type: "lines, words" });
                 const prodHeroLabel = new SplitText('.prod-hero-label', { type: "lines, words" });
@@ -3004,6 +3669,12 @@ const mainScript = () => {
             }
             prodTabInit();
 
+            function prodFormInit() {
+                formHandler("#productDtlForm", {
+                    onSuccess: (success) => popupSuccessGeneration(success)
+                });
+            }
+            prodFormInit();
         },
         beforeLeave() {
             console.log('leave productTemplate')
@@ -3015,52 +3686,9 @@ const mainScript = () => {
             console.log('enter blogs')
 
             initBlogFs();
-            inputInteractionInit();
+            inputInteractionInit('[data-name="Blog Srch"]');
             blogSrchInit()
             //checkUrl()
-
-            function blogSrchInit() {
-                $('[data-srch="open"]').on('click', function(e) {
-                    $('.blog-srch-wrap').addClass('active')
-                    lenis.stop()
-                    //
-                })
-                $('[data-srch="close"]').on('click', function(e) {
-                    $('.blog-srch-wrap').removeClass('active')
-                    lenis.start()
-                    // reset
-                    $('[fs-cmsfilter-element="clear-1"]').trigger('click')
-                })
-
-                $('.blog-srch-clear-ic.pe-none').on('click', function(e) {
-
-                })
-
-                $('#blog-srch').on('keyup', function(e) {
-                    console.log($(this).val())
-                    let srchPool = $('[fs-cmsfilter-element="list-1"]');
-                    // setTimeout(() => {
-                    //     srchPool.each((index, el) => {
-                    //         if ($(el).find('[role="listitem"]').length == 0) {
-                    //             $(el).closest('.blog-srch-cms-wrap').css('display','none')
-                    //         } else {
-                    //             $(el).closest('.blog-srch-cms-wrap').css('display','block')
-                    //         }
-                    //     })
-                    // }, 101);
-                })
-
-                //Mobile dropdown
-                $('.blog-tab-mb-toggle').on('click', function(e) {
-                    e.preventDefault();
-                    if ($(this).hasClass('on-open')) {
-                        $('.blog-tab-links-inner-form').removeClass('active')
-                    } else {
-                        $('.blog-tab-links-inner-form').addClass('active')
-                    }
-                })
-                $('.blog-tab-mb-toggle')
-            }
 
             function blogHeroInit() {
                 const blogHeroLabel = new SplitText('.blog-hero-label', {type: 'lines, words'});
@@ -3151,6 +3779,19 @@ const mainScript = () => {
                     $('.blog-main-wrap').addClass('on-main')
                     $('.blog-main-wrap').removeClass('on-cate')
                 })
+
+                if ($(window).width() < 768) {
+                    $('.blog-tab-mb-toggle').on('click', function(e) {
+                        e.preventDefault();
+                        if ($(this).hasClass('open')) {
+                            $(this).removeClass('open');
+                            $('.blog-tab-links-inner-form').removeClass('active')
+                        } else {
+                            $(this).addClass('open');
+                            $('.blog-tab-links-inner-form').addClass('active')
+                        }
+                    })
+                }
             }
             blogInteraction()
 
@@ -3165,6 +3806,7 @@ const mainScript = () => {
         afterEnter() {
             console.log('enter blog tag')
             initBlogFs()
+
             function blogTagHeroInit() {
                 const blogTagLabel = new SplitText('.blogtag-hero-result-label', { type: 'lines, words' });
                 const blogTagTitle = new SplitText('.blogtag-hero-result-title', { type: 'lines, words' });
@@ -3235,7 +3877,8 @@ const mainScript = () => {
             console.log('enter blog category')
 
             initBlogFs();
-            inputInteractionInit();
+            inputInteractionInit('[data-name="Blog Srch"]');
+            blogSrchInit()
 
             function blogCateHeroInit() {
                 const blogCateHeroLabel = new SplitText('.blog-hero-label', {type: 'lines, words'});
@@ -3464,7 +4107,6 @@ const mainScript = () => {
                     }
                 })
                 partSolutionSwiper.on('activeIndexChange', (swiper) => {
-                    console.log(swiper.activeIndex)
                     partSolSwiperAnim(swiper.activeIndex)
                 })
                 function partSolSwiperAnim(index) {
@@ -3492,9 +4134,15 @@ const mainScript = () => {
                 .fromTo('.home-invest-marquee-txt-wrap.from-right.mod-part .part-marquee-txt-inner-wrap', {xPercent: 100}, {xPercent: -50, duration: 10}, '0')
                 .fromTo('.home-invest-marquee-txt-wrap.from-left.mod-part .part-marquee-txt-inner-wrap', {xPercent: -100}, {xPercent: 50, duration: 10}, '0')
             }
-            partMarqueeInit()
+            partMarqueeInit();
 
-            inputInteractionInit()
+            function partnerFormInit() {
+                formHandler('#partnerForm', {
+                    onSuccess: (success) => popupSuccessGeneration(success)
+                });
+            }
+            partnerFormInit();
+
         },
         beforeLeave() {
             console.log('leave partner program')
@@ -3504,19 +4152,202 @@ const mainScript = () => {
         namespace: 'about',
         afterEnter() {
             console.log('enter about us page')
+            function aboutHero3dInit() {
+                console.log('about hero 3d init')
+
+                let cameraOpt = {
+                    zPosition: 14.8,
+                }
+                let barrelStart = {
+                    zPosition: 0,
+                    yPosition: 0,
+                    xRotation: 0,
+                    yRotation: 0,
+                }
+                let lightIntensity = {
+                    env: 1,
+                    rim: {
+                        lr: .6,
+                        tb: .6,
+                        bot: .6
+                    }
+                };
+
+                const scene = new THREE.Scene()
+
+                rendererAboutHero.domElement.id = 'about3d';
+
+                $('.about-3d-wrap').append(rendererAboutHero.domElement);
+
+                cameraAboutHero.position.z = cameraOpt.zPosition;
+
+                let rimLeft = new THREE.DirectionalLight("#FBC30F", lightIntensity.rim.lr);
+                let rimRight = new THREE.DirectionalLight("#FBC30F", lightIntensity.rim.lr);
+                let rimTop = new THREE.DirectionalLight("#ffffff", lightIntensity.rim.tb);
+                let rimBottom = new THREE.DirectionalLight("#FBC30F", lightIntensity.rim.bot);
+
+                rimLeft.lookAt(0,0,0);
+                rimLeft.position.set(5,0,-10);
+                rimLeft.scale.set(2,2,2)
+                rimLeft.rotation.z = -Math.PI / 2;
+
+                rimRight.lookAt(0,0,0);
+                rimRight.position.set(-5,0,-10);
+                rimRight.scale.set(2,2,2)
+                rimRight.rotation.z = Math.PI / 2;
+
+                rimTop.lookAt(0,0,0);
+                rimTop.position.set(0,4,-12);
+                rimTop.scale.set(2,2,2)
+                rimTop.rotation.z = Math.PI / 2;
+
+                rimBottom.lookAt(0,0,0);
+                rimBottom.position.set(0,-6,-12);
+                rimBottom.scale.set(2,2,2)
+                rimBottom.rotation.z = Math.PI / 2;
+
+                const environmentMap = enviromentMapLoad;
+
+                let barrel;
+                let outerGroup = new THREE.Group();
+                let clock = new THREE.Clock();
+                barrelAboutHero.then((gltf) => {
+                    barrel = gltf.scene
+                    updateAllMaterial(barrel, environmentMap, false)
+                    updateLight(barrel, lightIntensity.env)
+
+                    barrel.scale.set(2.8,2.8,2.8);
+                    barrel.position.set(0, barrelStart.yPosition, barrelStart.zPosition)
+                    barrel.rotation.set(barrelStart.xRotation, barrelStart.yRotation, 0)
+                    outerGroup.add(barrel);
+                    scene.add(outerGroup)
+                    scene.add(rimLeft);
+                    scene.add(rimRight);
+                    scene.add(rimTop);
+                    scene.add(rimBottom);
+                    aboutHero3dAnim()
+                })
+
+                rendererAboutHero.setAnimationLoop(animate)
+                function animate() {
+                    if (!$('[data-barba-namespace="about"]').length) {
+                        return;
+                    }
+                    if (barrel) {
+                        barrel.rotation.y -= pi * 0.001;
+                        barrel.rotation.z = Math.sin(clock.getElapsedTime() / 100)
+                        barrel.rotation.x = Math.cos(clock.getElapsedTime() / 10)
+
+                        if ($(window).width() > 991) {
+                            outerGroup.position.x = lerp(outerGroup.position.x, - ((pointer.x / (viewport.width) - 0.5) * 2) * .4, 0.02)
+                            outerGroup.position.y = lerp(outerGroup.position.y, ((pointer.y / (viewport.height) - 0.5) * 2) * .4, 0.02)
+                        }
+                    }
+                    rendererAboutHero.render( scene, cameraAboutHero );
+                }
+
+                function aboutHero3dAnim() {
+                    const aboutHero3dTl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.sc-abt-hero',
+                            start: `top top`,
+                            end: `bottom top`,
+                            scrub: .1,
+                        }
+                    })
+                    aboutHero3dTl
+                    .to(outerGroup.rotation, {y: Math.PI, ease: 'linear'})
+                }
+            }
+            aboutHero3dInit();
+
             function abtHeroSetup() {
                 let offsetTop = `${($(window).height() - $('.abt-hero-stick-inner').height()) / 2}px`;
-                $('.abt-hero-stick-inner').css('top', offsetTop)
-                $('.abt-hero-stick-inner').css('margin-top', offsetTop)
-                $('.abt-hero-title-wrap').css('padding-top', offsetTop)
-            }
-            abtHeroSetup()
+                let abt3dMargin = $(window).width() - $('.container').width();
 
-            function abtWhyInit() {
+                if (viewport.width > 767) {
+                    $('.abt-hero-title-wrap').css('padding-top', offsetTop)
+                    $('.abt-hero-stick-inner').css('top', offsetTop)
+                    $('.abt-hero-stick-inner').css('margin-top', offsetTop)
+                    $('.about-3d-wrap').css('margin', `-${abt3dMargin}px`);
+                }
+                $(window).resize()
+            }
+            abtHeroSetup();
+            function abtTimeSetup() {
+                const allTimeZones = $('[data-time]')
+                allTimeZones.each((index, el) => {
+                    let zone = $(el).attr('data-time');
+                    $(el).find('[data-time-txt]').text(dayjs(Date.now()).tz(zone).format('HH:mm:ss'))
+                })
+            }
+            abtTimeSetup()
+
+            function aboutHeroInit() {
+                const abtHeroTitle = new SplitText('.abt-hero-title', {type: 'words'})
+                const tlAbtHero = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.abt-hero-title-wrap',
+                        start: 'top top',
+                        end: `bottom-=${viewportBreak({ desktop: 0, mobile: 50 })}% top+=${viewportBreak({ desktop: 40, mobile: 0 })}%`,
+                        scrub: true,
+                    }
+                })
+                tlAbtHero
+                .from(abtHeroTitle.words.slice(1), {color: '#212121', duration: .1, stagger: .02, ease: 'power1.out'})
+            }
+            aboutHeroInit()
+
+            function abtMainInit() {
+                const abtMainItems = $('.abt-main-item-wrap');
+                for (let x = 0; x < abtMainItems.length; x++) {
+                    gsap.set(abtMainItems.eq(x).find('.abt-main-item-img-wrap'), {clipPath: 'inset(20%)'})
+                    gsap.set(abtMainItems.eq(x).find('.abt-main-item-img-wrap img'), {scale: 1.4, autoAlpha: 0})
+
+                    const tlAbtMainImg = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: abtMainItems.eq(x),
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tlAbtMainImg
+                    .from(abtMainItems.eq(x).find('.part-help-img-grad'), {autoAlpha: 0, duration: 1, ease: 'expo.out'}, '0')
+                    .to(abtMainItems.eq(x).find('.abt-main-item-img-wrap'), { clipPath: 'inset(0%)', duration: 1.4, ease: 'expo.out'},'0')
+                    .to(abtMainItems.eq(x).find('.abt-main-item-img-wrap img'), { scale: 1, duration: 1.4, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'}, '0')
+
+                    const abtMainItemTitle = new SplitText(abtMainItems.eq(x).find('.abt-main-item-title'), {type: 'lines, words'})
+
+                    const tlAbtMainTitle = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: abtMainItems.eq(x).find('.abt-main-content-wrap'),
+                            start: 'top bottom-=25%',
+                            end: 'bottom top+=50%',
+                            scrub: true,
+                        }
+                    })
+                    tlAbtMainTitle
+                    .from(abtMainItemTitle.words, {color: '#212121', duration: .1, stagger: .02, ease: 'power1.out'})
+
+                    const abtMainItemBody = new SplitText(abtMainItems.eq(x).find('.abt-main-item-sub'), {type: 'lines, words'})
+                    gsap.set(abtMainItemBody.lines, {'overflow': 'hidden'})
+
+                    const tlAbtMainItemBody = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: abtMainItems.eq(x).find('.abt-main-content-wrap'),
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tlAbtMainItemBody
+                    .from(abtMainItemBody.words, {autoAlpha: 0, yPercent: 100, duration: .8, stagger: .003})
+                }
+            }
+            abtMainInit()
+
+            function abtWhySetup() {
                 $('.abt-why-item-wrap').on('pointerover', function(e) {
                     gsap.to('.abt-why-img-inner', {yPercent: -100 * $(this).index(), duration: .6, ease: 'sine.out', overwrite: true})
                 })
-                let abtWhyTl = gsap.timeline({
+                let tlAbtWhyMain = gsap.timeline({
                     scrollTrigger: {
                         trigger: '.abt-why-list-wrap',
                         start: 'top bottom',
@@ -3524,14 +4355,630 @@ const mainScript = () => {
                         scrub: true
                     }
                 })
-                abtWhyTl
+                tlAbtWhyMain
                 .to('.abt-why-img-inner-wrap', {yPercent: 100, ease: 'none'})
+
+                const abtWhyLabel = new SplitText('.abt-why-title-wrap .abt-why-label', {type: 'lines, words'})
+                const abtWhyTitle = new SplitText('.abt-why-title-wrap .h-size72', {type: 'lines, words'})
+                gsap.set([abtWhyLabel.lines, abtWhyTitle.lines], {'overflow': 'hidden'})
+
+                const tlAbtWhyTitle = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.abt-why-title-wrap',
+                        start: 'top top+=60%',
+                    }
+                })
+                tlAbtWhyTitle
+                .from(abtWhyLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1 }, '0')
+                .from(abtWhyTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .03 }, '<= .25')
+
+                gsap.set('.abt-why-list-wrap', {perspective: '40rem', perspectiveOrigin: 'top'})
+                gsap.set('.abt-why-list-item-inner', {transformOrigin: 'top'})
+                const tlAbtTeamMain = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.abt-why-list-wrap',
+                        start: 'top top+=70%',
+                        end: 'bottom top+=70%',
+                        scrub: true
+                    }
+                })
+                tlAbtTeamMain
+                .from('.abt-why-list-item-inner', {rotationX: -45, autoAlpha: 0, duration: 2.5, stagger: 1}, '0')
+
             }
-            abtWhyInit()
+            abtWhySetup()
+
+            function abtTeamInit() {
+                const abtTeamLabel = new SplitText('.abt-team-title-wrap .abt-team-label', {type: 'lines, words'})
+                const abtTeamTitle = new SplitText('.abt-team-title-wrap .abt-team-title', {type: 'lines, words'})
+                gsap.set([abtTeamLabel.lines, abtTeamTitle.lines], {'overflow': 'hidden'})
+
+                const tlAbtTeamTitle = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.abt-team-title-wrap',
+                        start: 'top top+=60%',
+                    }
+                })
+                tlAbtTeamTitle
+                .from(abtTeamLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .02 }, '0')
+                .from(abtTeamTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .03 }, '<= .25')
+
+                if ($(window).width() > 991) {
+                    const abtTeamSub = new SplitText('.abt-team-cms-wrap .abt-team-sub:not(.w-condition-invisible)', {type: 'lines, words'})
+                    gsap.set(abtTeamSub.lines, {'overflow':'hidden'})
+                    const tlAbtTeamSub = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.abt-team-cms-wrap .abt-team-sub:not(.w-condition-invisible)',
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tlAbtTeamSub
+                    .from(abtTeamSub.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .003 }, '<= .25')
+                } else {
+                    const abtTeamSub = new SplitText('.abt-team-sub.hidden-dk', {type: 'lines, words'})
+                    gsap.set(abtTeamSub.lines, {'overflow':'hidden'})
+                    const tlAbtTeamSub = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: '.abt-team-sub.hidden-dk',
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tlAbtTeamSub
+                    .from(abtTeamSub.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .003 }, '<= .25')
+                }
+
+                const allAbtTeamItems = $('.abt-team-cms-item')
+                for (let x = 0; x < allAbtTeamItems.length; x++) {
+                    gsap.set(allAbtTeamItems.eq(x).find('.abt-team-item-img-wrap'), {clipPath: 'inset(20%)'})
+                    gsap.set(allAbtTeamItems.eq(x).find('.abt-team-item-img-wrap img'), {scale: 1.4})
+
+                    const tl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: allAbtTeamItems.eq(x),
+                            start: 'top top+=60%',
+                        },
+                        delay: (x == 2 || x == 4) ? '0.2' : '0',
+                    })
+                    tl
+                    .from(allAbtTeamItems.eq(x).find('.abt-team-item-wrap'), {autoAlpha: 0, duration: .4, ease: 'linear'}, '0')
+                    .to(allAbtTeamItems.eq(x).find('.abt-team-item-img-wrap'), { clipPath: 'inset(0%)', duration: 1, ease: 'expo.out', clearProps: 'background-color'},'0')
+                    .to(allAbtTeamItems.eq(x).find('.abt-team-item-img-wrap img'), { scale: 1, duration: 1, ease: 'expo.out', clearProps: 'all'}, '0')
+                    .from(allAbtTeamItems.eq(x).find('.abt-team-item-info-name'), {autoAlpha: 0, yPercent: 100, duration: .8}, '.1')
+                    .from(allAbtTeamItems.eq(x).find('.abt-team-item-info-job'), {autoAlpha: 0, yPercent: 100, duration: .8}, '.2')
+                }
+
+
+            }
+            abtTeamInit()
+
+            function abtTimeInit() {
+                const abtTimeLabel = new SplitText('.abt-loca-label', {type: 'lines, words'});
+
+                gsap.set(abtTimeLabel.lines, {'overflow': 'hidden'})
+
+                const tlAbtTimeLabel = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.abt-loca-label',
+                        start: 'top top+=60%',
+                    }
+                })
+                tlAbtTimeLabel
+                .from(abtTimeLabel.words, {autoAlpha: 0, yPercent: 100, duration: 1, stagger: .03 });
+
+                const allAbtTimeItems = $('.abt-loca-item-wrap');
+                for (let x = 0; x < allAbtTimeItems.length; x++) {
+                    const tl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: allAbtTimeItems.eq(x),
+                            start: 'top top+=65%',
+                        }
+                    })
+                    tl
+                    .from(allAbtTimeItems.eq(x).find('.abt-loca-country'), {autoAlpha: 0, yPercent: 100, duration: .6}, '0')
+                    .from(allAbtTimeItems.eq(x).find('.abt-loca-place'), {autoAlpha: 0, yPercent: 50, duration: .8}, '<=.1')
+                    .from(allAbtTimeItems.eq(x).find('.abt-loca-time'), {autoAlpha: 0, yPercent: 100, duration: .6}, '<=.2')
+                }
+
+            }
+            abtTimeInit()
 
         },
         beforeLeave() {
             console.log('leave about us page')
+        }
+    }
+    SCRIPT.newsScript = {
+        namespace: 'news',
+        afterEnter() {
+            console.log('enter news page')
+            initBlogFs()
+            function newsHeroInit() {
+                const newsHeroTitle = new SplitText('.news-main-title', {type: 'lines, words'})
+                const newsHeroSub = new SplitText('.news-main-sub', {type: 'lines, words'})
+
+                gsap.set([
+                    newsHeroTitle.lines,
+                    newsHeroSub.lines], { overflow: 'hidden' })
+
+                const tlNewsHero = gsap.timeline({
+                    delay: delayTimeAfterEnter,
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlNewsHero
+                .from(newsHeroTitle.words, { autoAlpha: 0, yPercent: 100, duration: 1 }, '0')
+                .from(newsHeroSub.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .03 }, '<= .25')
+            }
+            newsHeroInit();
+        },
+        beforeLeave() {
+            console.log('leave news page')
+            resetBlogFs()
+        }
+    }
+    SCRIPT.distilleryScript = {
+        namespace: 'distillery',
+        afterEnter() {
+            console.log('enter Distillery Detail page')
+            function distHeroInit() {
+                const distHeroTitle = new SplitText('.dist-hero-title', {type: 'lines, words'})
+                const distHeroSub = new SplitText('.dist-hero-sub', {type: 'lines, words'})
+
+                gsap.set([
+                    distHeroTitle.lines,
+                    distHeroSub.lines], { overflow: 'hidden' })
+
+                const tlDistHero = gsap.timeline({
+                    delay: delayTimeAfterEnter,
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlDistHero
+                .from(distHeroTitle.words, { autoAlpha: 0, yPercent: 100, duration: 1 }, '0')
+                .from(distHeroSub.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .03 }, '<= .25')
+            }
+            distHeroInit()
+
+            function distMainInit() {
+                const allDistItems = $('.dist-main-cms-item');
+                for (let x = 0; x < allDistItems.length; x++) {
+                    const distItemTitle = new SplitText(allDistItems.eq(x).find('.dist-main-item-title'), {type: 'lines, words'})
+                    const distItemSub = new SplitText(allDistItems.eq(x).find('.dist-main-item-sub'), {type: 'lines, words'})
+
+                    gsap.set(allDistItems.eq(x).find('.dist-main-item-img-wrap'), {clipPath: 'inset(20%)', pointerEvents: 'none', opacity: 0})
+                    gsap.set(allDistItems.eq(x).find('.dist-main-item-img-wrap img'), {scale: 1.4, autoAlpha: 0})
+
+                    gsap.set([
+                    distItemTitle.lines,
+                    distItemSub.lines], { overflow: 'hidden' })
+
+                    const tl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: allDistItems.eq(x),
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tl
+                    .from(distItemTitle.words, {autoAlpha: 0, yPercent: 100, duration: .8}, '0')
+                    .from(distItemSub.words, {autoAlpha: 0, yPercent: 100, duration: .4, stagger: .03}, '<=.25')
+                    .from(allDistItems.eq(x).find('.mod-dist-main-btn'), {autoAlpha: 0, yPercent: 100, duration: .8}, '<=.25')
+                    .to(allDistItems.eq(x).find('.dist-main-item-img-wrap'), { clipPath: 'inset(0%)', duration: 1.4, ease: 'expo.out', clearProps: 'pointer-events', opacity: 1},'0')
+                    .to(allDistItems.eq(x).find('.dist-main-item-img-wrap img'), { scale: 1, duration: 1.4, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'}, '0')
+                }
+            }
+            distMainInit()
+        },
+        beforeLeave() {
+            console.log('leave Distillery Detail page')
+        }
+    }
+    SCRIPT.distilleryDtlScript = {
+        namespace: 'distilleryDtl',
+        afterEnter() {
+            console.log('enter Distillery Detail page')
+            //Hidden url input
+
+            function distDtlContentSetup() {
+                let itemTemp = $('.distdtl-key-item-wrap').clone();
+                let allTxtItems = $('.distdtl-key-rictxt p');
+                $('.distdtl-key-rictxt').html('')
+                $('.distdtl-key-item-wrap').remove()
+                for (let x = 0; x < allTxtItems.length; x++) {
+                    let html = itemTemp.clone()
+                    html.find('.invest-how-item-inner-txt').text(allTxtItems.eq(x).text())
+                    html.find('.invest-how-item-inner-value').text(`0${x + 1}`)
+                    $('.distdtl-key-rictxt').append(html)
+                }
+
+                if (!$('.distdtl-stas-vid-wrap').hasClass('.w-condition-invisible')) {
+                    if ($(window).width() > 991) {
+                        $('.distdtl-stas-vid-wrap').on('pointerenter',(e) => {
+                            lenis.stop();
+                        })
+                        $('.distdtl-stas-vid-wrap').on('pointerleave',(e) => {
+                            lenis.start();
+                        })
+                    }
+                }
+
+            }
+            distDtlContentSetup()
+
+            function distDtlHeroInit() {
+                const distDtlHeroTitle = new SplitText('.distdtl-hero-title', {type: 'lines, words'})
+                const distDtlHeroSub = new SplitText('.distdtl-hero-sub', {type: 'lines, words'})
+
+                gsap.set([
+                    distDtlHeroTitle.lines,
+                    distDtlHeroSub.lines], { overflow: 'hidden' })
+
+                const tlDistDtlHero = gsap.timeline({
+                    delay: delayTimeAfterEnter,
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlDistDtlHero
+                .from('.distdtl-hero-brcr > *', {autoAlpha: 0, yPercent: 100, duration: .8, stagger: .2}, '0')
+                .from(distDtlHeroTitle.words, { autoAlpha: 0, yPercent: 100, duration: 1 }, '0')
+                .from('.distdtl-hero-img-inner', {autoAlpha: 0, duration: 1}, '0')
+                for (let x = 0; x < distDtlHeroSub.lines.length; x++) {
+                    tlDistDtlHero.from($(distDtlHeroSub.lines[x]).find('div'), { autoAlpha: 0, yPercent: 100, duration: .3, stagger: .01 }, '<= .1')
+                }
+            }
+            distDtlHeroInit()
+
+            function disDtlHeroImgInit() {
+                const distDtlHeroImgTl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.distdtl-hero-img-wrap',
+                        start: 'top bottom',
+                        end: 'bottom top',
+                        scrub: true,
+                    },
+                })
+                distDtlHeroImgTl
+                .fromTo('.distdtl-hero-img-wrap .img-basic', {'object-position': '50% 0%'}, {'object-position': '50% 100%', ease: 'linear'})
+            }
+            disDtlHeroImgInit()
+
+            function distDtlProfInit() {
+                const distDtlProfLabel = new SplitText('.sc-distdtl-prof .distdtl-prof-title-wrap .distdtl-prof-label', {type: 'lines, words'})
+                const distDtlProfTitle = new SplitText('.sc-distdtl-prof .distdtl-prof-title-wrap .distdtl-prof-title', {type: 'lines, words'})
+                const distDtlProfRtHead = new SplitText('.sc-distdtl-prof .distdtl-prof-sub-wrap h3', {type: 'lines, words'})
+                const distDtlProfRtBody = new SplitText('.sc-distdtl-prof .distdtl-prof-sub-wrap p', {type: 'lines, words'})
+
+                gsap.set([distDtlProfLabel.lines,distDtlProfTitle.lines, distDtlProfRtHead.lines, distDtlProfRtBody.lines], { overflow: 'hidden' })
+
+                const tlDistDtlProf = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-distdtl-prof .container',
+                        start: 'top top+=60%',
+                    },
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlDistDtlProf
+                .from(distDtlProfLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .04 }, '0')
+                .from(distDtlProfTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .04 }, '<= .1')
+                .from(distDtlProfRtHead.words, { autoAlpha: 0, yPercent: 100, duration: .4, stagger: .02 }, '.1')
+                for (let x = 0; x < $('.sc-distdtl-prof .distdtl-prof-sub-wrap p').length; x++ ) {
+                    tlDistDtlProf.from($('.sc-distdtl-prof .distdtl-prof-sub-wrap p').eq(x).find('div'), { autoAlpha: 0, yPercent: 100, duration: .3, stagger: .01 }, `<=${.1 * (x + 1)} `)
+                }
+
+                const distDtlProfImgs = $('.sc-distdtl-prof .distdtl-prof-img-cms-item');
+                for (let x = 0; x < distDtlProfImgs.length; x++) {
+                    gsap.set(distDtlProfImgs.eq(x), {clipPath: 'inset(20%)'})
+                    gsap.set(distDtlProfImgs.eq(x).find('img'), {scale: 1.4, autoAlpha: 0})
+
+                    const tl = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: distDtlProfImgs.eq(x),
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tl
+                    .fromTo(distDtlProfImgs.eq(x).find('.dist-main-item-img-overlay'), {autoAlpha: 0}, {autoAlpha: 1, duration: 1, ease: 'expo.out'}, `${.1 * x}`)
+                    .to(distDtlProfImgs.eq(x), { clipPath: 'inset(0%)', duration: 1.4, ease: 'expo.out'},`${.1 * x}`)
+                    .to(distDtlProfImgs.eq(x).find('img'), { scale: 1, duration: 1.4, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'}, `${.1 * x}`)
+                }
+
+            }
+            distDtlProfInit();
+
+            function distDtlKeyInit() {
+                const distDtlKeyLabel = new SplitText('.sc-distdtl-key .distdtl-key-title-wrap .distdtl-prof-label', {type: 'lines, words'})
+                const distDtlKeyTitle = new SplitText('.sc-distdtl-key .distdtl-key-title-wrap .distdtl-prof-title', {type: 'lines, words'})
+
+                gsap.set([distDtlKeyLabel.lines,distDtlKeyTitle.lines], { overflow: 'hidden' })
+
+                const tlDistDtlKey = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-distdtl-key .distdtl-key-title-wrap',
+                        start: '.top top+=60%',
+                    },
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlDistDtlKey
+                .from(distDtlKeyLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .04 }, '0')
+                .from(distDtlKeyTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .04 }, '<= .1')
+
+                gsap.set('.sc-distdtl-key .distdtl-key-rictxt', {perspective: '40rem', perspectiveOrigin: 'top'})
+                gsap.set('.sc-distdtl-key .distdtl-key-item-wrap', {transformOrigin: 'top'})
+                const tlDistDtlKeyList = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-distdtl-key .distdtl-key-sub-wrap',
+                        start: 'top bottom-=25%',
+                        end: 'bottom top+=65%',
+                        scrub: true
+                    }
+                })
+                tlDistDtlKeyList
+                .from('.sc-distdtl-key .distdtl-key-item-wrap', {rotationX: -45, autoAlpha: 0, duration: 2.5, stagger: 1}, '0')
+
+                gsap.set('.distdtl-key-img-wrap', {clipPath: 'inset(20%)', overflow: 'hidden'})
+                gsap.set('.distdtl-key-img-wrap img', {scale: 1.4, autoAlpha: 0})
+
+                const tl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.distdtl-key-img-wrap',
+                        start: 'top top+=60%',
+                    }
+                })
+                tl
+                .to('.distdtl-key-img-wrap', { clipPath: 'inset(0%)', duration: 1.8, ease: 'expo.out'}, '0')
+                .to('.distdtl-key-img-wrap img', { scale: 1, duration: 1.8, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'},  '0')
+            }
+            distDtlKeyInit()
+
+            function distDtlStasInit() {
+                const distDtlStasLabel = new SplitText('.sc-distdtl-stas .distdtl-prof-title-wrap .distdtl-stas-label', {type: 'lines, words'})
+                const distDtlStasTitle = new SplitText('.sc-distdtl-stas .distdtl-prof-title-wrap .distdtl-prof-title', {type: 'lines, words'})
+                const distDtlStasRtBody = new SplitText('.sc-distdtl-stas .distdtl-stas-sub-wrap p', {type: 'lines, words'})
+                gsap.set([distDtlStasLabel.lines, distDtlStasTitle.lines, distDtlStasRtBody.lines], { overflow: 'hidden' })
+
+                const tlDistDtlStas = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-distdtl-stas .container',
+                        start: 'top top+=60%',
+                    },
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlDistDtlStas
+                .from(distDtlStasLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .04 }, '0')
+                .from(distDtlStasTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .04 }, '<= .1')
+                for (let x = 0; x < $('.sc-distdtl-stas .distdtl-stas-sub-wrap p').length; x++ ) {
+                    tlDistDtlStas.from($('.sc-distdtl-stas .distdtl-stas-sub-wrap p').eq(x).find('div'), { autoAlpha: 0, yPercent: 100, duration: .3, stagger: .004 }, `<=${.1 * x} `)
+                }
+
+                gsap.set('.distdtl-stas-main', {perspective: '40rem', perspectiveOrigin: 'top'})
+                gsap.set('.distdtl-stas-main .distdtl-stas-item-wrap', {transformOrigin: 'top'})
+
+                const tlDistDtlStasList = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.distdtl-stas-main',
+                        start: 'top top+=60%',
+                    }
+                })
+                tlDistDtlStasList
+                .from('.distdtl-stas-main .distdtl-stas-item-wrap', {rotationX: -45, autoAlpha: 0, duration: .6, stagger: .08}, '0')
+
+            }
+            distDtlStasInit()
+
+            function distDtlFormInit() {
+                formHandler('#distilleryDtlForm', {
+                    onSuccess: (success) => popupSuccessGeneration(success)
+                });
+            }
+            distDtlFormInit();
+        },
+        beforeLeave() {
+            console.log('leave Distillery Detail page')
+        }
+    }
+    SCRIPT.whiskyMadeScript = {
+        namespace: 'whistkyMade',
+        afterEnter() {
+            console.log('enter Whisky How its made')
+            function whisHeroInit() {
+                gsap.set('.whis-hero-title', {'vertical-align': 'text-top'})
+                const whisHeroLabel = new SplitText('.whis-hero-label', {type: 'lines, words'})
+                const whisHeroTitle = new SplitText('.whis-hero-title', { type: 'lines, words'});
+                gsap.set([whisHeroLabel.lines, whisHeroTitle.lines], {'overflow': 'hidden'})
+                const whisHeroTl = gsap.timeline({
+                    delay: delayTimeAfterEnter,
+                });
+                whisHeroTl
+                .from(whisHeroLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .04 }, '0')
+                .from(whisHeroTitle.words, { autoAlpha: 0 ,yPercent: 100, duration: .6, stagger: 0.04, ease: 'power2.out', onComplete: () => {
+                    gsap.set('.whis-hero-title > div', {'overflow': 'visible'})
+                }}, '<=.1')
+                .from('.whis-hero-img-wrap', {autoAlpha: 0, duration: 1.2, ease: 'power1.inOut'}, '<=.2')
+
+                const whisHeroImgTl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.whis-hero-img-wrap',
+                        start: 'top bottom',
+                        end: 'bottom top',
+                        scrub: true
+                    }
+                })
+                whisHeroImgTl
+                .fromTo('.whis-hero-img-wrap-inner img', {'object-position': '50% 0%'}, {'object-position': '50% 100%', ease: 'linear'})
+            }
+            whisHeroInit()
+
+            function whisAboutInit() {
+                const whisAboutTitle = new SplitText('.whis-abt-title', { type: 'lines, chars'});
+                let whisAboutTitleTl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-whis-abt',
+                        start: 'top top+=50%',
+                        end: 'bottom top+=50%',
+                        scrub: .6,
+                    }
+                })
+                whisAboutTitleTl
+                .to(whisAboutTitle.chars, {color: '#ffffff', duration: .1, stagger: 0.02, ease: 'power1.out'}, '0')
+
+                const whisAboutBgTl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-whis-abt',
+                        start: 'top bottom',
+                        end: 'bottom top',
+                        scrub: .6,
+                    }
+                })
+                whisAboutBgTl
+                .fromTo('.whis-abt-bg-wrap', {yPercent: -10}, {yPercent: 10, ease: 'none'})
+            }
+            whisAboutInit();
+
+            function whisMarqueeInit() {
+                // let homeInvestMarqueeTl = gsap.timeline({
+                //     scrollTrigger: {
+                //         trigger: '.home-invest-marquee-stick-wrap',
+                //         start: 'top+=50% bottom',
+                //         end: `bottom+=${$(window).height()} top+=75%'`,
+                //         scrub: true,
+                //     }
+                // })
+                // let distance = $('.home-invest-marquee-stick-wrap').height() - $('.home-invest-marquee').height();
+                // homeInvestMarqueeTl
+                // .to('.home-invest-marquee', {y: distance, duration: 5, ease: 'none'})
+                // .to('.pre-invest-bg-wrap.bg-x .pre-invest-bg:not(.mod-home-cta-mb)', {autoAlpha: 0, yPercent: -15, duration: 5, ease: 'power1.in'}, '0')
+                // .fromTo('.home-invest-marquee-txt-wrap.from-right .home-invest-marquee-txt', {xPercent: 100}, {xPercent: -100, duration: 10}, '0')
+                // .fromTo('.home-invest-marquee-txt-wrap.from-left .home-invest-marquee-txt', {xPercent: -100}, {xPercent: 100, duration: 10}, '0')
+
+                let homeInvestTitleNoAnimTl = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.home-invest-marquee-stick-wrap',
+                        start: 'top bottom',
+                        end: `bottom top`,
+                        scrub: true,
+                    }
+                })
+                let distance = $('.home-invest-marquee-stick-wrap').height() - $('.home-invest-marquee').height();
+                homeInvestTitleNoAnimTl
+                .to('.home-invest-marquee', {y: distance, duration: 5, ease: 'none'})
+            }
+            whisMarqueeInit()
+
+            function whisMainScroll() {
+                let allStepGroup = $('.whis-proc-main-step-wrap');
+                let allStepToc = $('.whis-proc-step-wrap');
+
+                lenis.on('scroll', function(inst) {
+                    for (let i = 0; i < allStepGroup.length; i++) {
+                        let top = allStepGroup.eq(i).get(0).getBoundingClientRect().top;
+                        if (top > 0 && top < ($(window).height() / 5)) {
+                            allStepToc.removeClass('active');
+                            allStepToc.eq(i).addClass('active');
+                        }
+                    }
+                })
+
+                $('.whis-proc-step-wrap').on('click', function(e) {
+                    e.preventDefault();
+                    let index = $(this).index();
+                    lenis.scrollTo(allStepGroup.eq(index).get(0), {
+                        offset: - ($(window).height() / 6)
+                    })
+                })
+            }
+
+            function whisMainInit() {
+                const whisMainLabel = new SplitText('.whis-process-label', {type: 'lines, words'})
+                const whisMainTitle = new SplitText('.whis-process-title', {type: 'lines, words'})
+                const whisMainSub = new SplitText('.whis-process-sub', {type: 'lines, words'})
+
+                gsap.set([whisMainLabel.lines,whisMainTitle.lines, whisMainSub.lines], { overflow: 'hidden' })
+
+                const tlWhisMain = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.sc-whis-process .whis-process-title-wrap',
+                        start: 'top top+=60%',
+                    },
+                    default: {
+                        ease: 'power1.out'
+                    }
+                });
+
+                tlWhisMain
+                .from(whisMainLabel.words, { autoAlpha: 0, yPercent: 100, duration: 1, stagger: .04 }, '0')
+                .from(whisMainTitle.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .04 }, '<=.1')
+                .from(whisMainSub.words, { autoAlpha: 0, yPercent: 100, duration: .6, stagger: .02 }, '<=.1')
+
+                const tlWhisMainNav = gsap.timeline({
+                    scrollTrigger: {
+                        trigger: '.whis-process-stick-wrap',
+                        start: 'top top+=60%'
+                    }
+                })
+
+                tlWhisMainNav
+                .from('.whis-proc-step-wrap > *', {autoAlpha: 0, yPercent: 100, duration: .8, stagger: .04})
+
+                let allWhisListItem = $('.whis-proc-main-step-wrap');
+
+                for (let x = 0; x < allWhisListItem.length; x++) {
+                    gsap.set(allWhisListItem.eq(x).find('.whis-proc-main-step-title-wrap'), {'overflow': 'hidden'})
+                    const tlWhisListItem = gsap.timeline({
+                        scrollTrigger: {
+                            trigger: allWhisListItem.eq(x).find('.whis-proc-main-step-title-wrap'),
+                            start: 'top top+=60%',
+                        }
+                    })
+                    tlWhisListItem
+                    .from(allWhisListItem.eq(x).find('.whis-proc-main-step-title'), {autoAlpha: 0, yPercent: 100, duration: .6})
+
+                    const allWhisListSubItem = allWhisListItem.eq(x).find('.whis-proc-main-sub-item')
+
+                    for (let y = 0; y < allWhisListSubItem.length; y++) {
+                        gsap.set(allWhisListSubItem.eq(y).find('.whis-proc-main-img-wrap'), {clipPath: 'inset(20%)'})
+                        gsap.set(allWhisListSubItem.eq(y).find('.whis-proc-main-img-wrap img'), {scale: 1.4, autoAlpha: 0})
+
+
+                        const whisListSubBody = new SplitText(allWhisListSubItem.eq(y).find('.whis-proc-main-sub-step-txt'), {type: 'lines, words'})
+                        gsap.set(whisListSubBody.lines, {'overflow': 'hidden'})
+
+                        const tlWhisListSubItem = gsap.timeline({
+                            scrollTrigger: {
+                                trigger: allWhisListSubItem.eq(y),
+                                start: 'top top+=60%',
+                            }
+                        })
+                        tlWhisListSubItem
+                        .to(allWhisListSubItem.eq(y).find('.whis-proc-main-img-wrap'), { clipPath: 'inset(0%)', duration: 1.2, ease: 'expo.out'})
+                        .to(allWhisListSubItem.eq(y).find('.whis-proc-main-img-wrap img'), { scale: 1, duration: 1.2, autoAlpha: 1, ease: 'expo.out', clearProps: 'all'}, '0')
+                        .from(whisListSubBody.words, {autoAlpha: 0, yPercent: 100, duration: .4, stagger: .006 }, '<=.1')
+                    }
+                }
+            }
+
+            if ($(window).width() > 991) {
+                whisMainScroll()
+                whisMainInit()
+            }
+
+
+        },
+        beforeLeave() {
+            console.log('leave Whisky How its made')
         }
     }
 
@@ -3550,7 +4997,11 @@ const mainScript = () => {
         SCRIPT.termPolicyTemplateScript,
         SCRIPT.notFoundScript,
         SCRIPT.partnerScript,
-        SCRIPT.aboutScript
+        SCRIPT.aboutScript,
+        SCRIPT.newsScript,
+        SCRIPT.distilleryScript,
+        SCRIPT.distilleryDtlScript,
+        SCRIPT.whiskyMadeScript
     ]
 
     barba.init({
@@ -3562,6 +5013,7 @@ const mainScript = () => {
                 addNavActiveLink(data.next.namespace)
                 introInit()
                 footerInit()
+                toggleHeaderScrollmore(data.next.namespace)
             },
             async enter(data) {
 
@@ -3579,9 +5031,10 @@ const mainScript = () => {
                     setupAfterEnter()
                 })
             },
-            async afterLeave() {
+            async afterLeave(data) {
+                toggleHeaderScrollmore(data.next.namespace)
             }
-          }],
+        }],
         views: VIEWS
     })
 }
